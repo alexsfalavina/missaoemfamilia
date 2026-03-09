@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Missão em Família</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --secondary: #4f46e5;
+            --accent: #f59e0b;
+            --bg: #f8fafc;
+            --text: #1e293b;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; line-height: 1.6; color: var(--text); background: var(--bg); }
+        nav { background: white; padding: 1rem 5%; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 1000; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .logo { font-weight: bold; font-size: 1.5rem; color: var(--primary); }
+        .nav-links { display: flex; list-style: none; gap: 2rem; }
+        .nav-links a { text-decoration: none; color: var(--text); font-weight: 500; transition: color 0.3s; }
+        .nav-links a:hover { color: var(--primary); }
+        .hero { height: 80vh; background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; color: white; padding: 0 1rem; }
+        .hero h1 { font-size: 3.5rem; margin-bottom: 1rem; }
+        .hero p { font-size: 1.25rem; margin-bottom: 2rem; max-width: 600px; }
+        .btn { padding: 0.8rem 2rem; border-radius: 50px; border: none; font-weight: bold; cursor: pointer; transition: transform 0.3s; text-decoration: none; }
+        .btn-primary { background: white; color: var(--primary); }
+        .btn:hover { transform: translateY(-3px); }
+        section { padding: 5rem 10%; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 2rem; margin-top: 3rem; }
+        .card { background: white; padding: 2rem; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); text-align: center; }
+        .card i { font-size: 2.5rem; color: var(--primary); margin-bottom: 1rem; }
+        footer { background: #1e293b; color: white; padding: 4rem 10% 2rem; }
+        .footer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 3rem; }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="logo">Missão em Família</div>
+        <ul class="nav-links">
+            <li><a href="#home">Home</a></li>
+            <li><a href="#mission">Missão</a></li>
+            <li><a href="#alma">Método ALMA</a></li>
+            <li><a href="#events">Eventos</a></li>
+            <li><a href="#blog">Blog</a></li>
+        </ul>
+    </nav>
+    <section id="home" class="hero">
+        <h1>Educar os filhos é MISSÃO, não CASTIGO</h1>
+        <p>Transforme sua família com o Método ALMA</p>
+        <a href="#alma" class="btn btn-primary">Saiba Mais</a>
+    </section>
+    <section id="mission">
+        <h2 style="text-align:center">Nossa Missão</h2>
+        <p style="text-align:center; max-width: 800px; margin: 2rem auto;">Ajudar famílias a transformar o desafio da educação em uma missão de amor, através de ferramentas práticas baseadas na PNL (Programação Neurolinguística) e valores cristãos.</p>
+    </section>
+    <section id="alma">
+        <h2 style="text-align:center">Método ALMA</h2>
+        <div class="grid">
+            <div class="card"><i>A</i><h3>Autonomia</h3><p>Desenvolva a independência emocional e prática dos seus filhos</p></div>
+            <div class="card"><i>L</i><h3>Limites</h3><p>Estabeleça fronteiras saudáveis com amor e firmeza</p></div>
+            <div class="card"><i>M</i><h3>Maturidade</h3><p>Cultive o crescimento emocional e responsabilidade</p></div>
+            <div class="card"><i>A</i><h3>Acolhimento</h3><p>Crie um ambiente de conexão genuína e presença real</p></div>
+        </div>
+    </section>
+    <footer>
+        <div class="footer-grid">
+            <div><h3>Missão em Família</h3><p>Educação Parental • PNL • Fé</p></div>
+            <div><h3>Contato</h3><p>📧 contato@missaoemfamilia.com</p><p>📱 @jessynalin_missaoemfamilia</p></div>
+        </div>
+        <p style="text-align:center; margin-top: 3rem;">© 2026 Missão em Família. Todos os direitos reservados.</p>
+    </footer>
+</body>
+</html>
