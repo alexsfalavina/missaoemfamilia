@@ -16,6 +16,7 @@ import {
   CATEGORY_META,
   FORMAT_META,
   STATUS_META,
+  STORY_MODE_META,
   WEEKDAYS_PT,
   formatPtDate,
   formatPtDateShort,
@@ -266,6 +267,14 @@ export default function EditorialCalendarPage() {
                           <span className="badge badge-neutral" style={{ fontSize: '0.65rem', padding: '2px 6px' }}>
                             {fmt.label}
                           </span>
+                          {post.storyExecutionMode && (
+                            <span
+                              className={`badge ${STORY_MODE_META[post.storyExecutionMode].toneClass}`}
+                              style={{ fontSize: '0.63rem', padding: '2px 6px' }}
+                            >
+                              {STORY_MODE_META[post.storyExecutionMode].shortLabel}
+                            </span>
+                          )}
                         </div>
                       </button>
                     );

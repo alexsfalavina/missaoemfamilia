@@ -50,10 +50,14 @@ export async function PUT(request: NextRequest) {
       instagramHandle: normalizedHandle,
       instagramUrl: normalizedUrl,
       niche: String(body.niche ?? '').trim(),
+      positioningPillars: Array.isArray(body.positioningPillars)
+        ? body.positioningPillars.map((s: unknown) => String(s).trim()).filter(Boolean)
+        : undefined,
       targetAudience: String(body.targetAudience ?? '').trim(),
       servicesOffered: Array.isArray(body.servicesOffered)
         ? body.servicesOffered.map((s: unknown) => String(s).trim()).filter(Boolean)
         : [],
+      verifiedCommercialInfo: body.verifiedCommercialInfo,
       brandVoice: String(body.brandVoice ?? '').trim(),
       brandValues: Array.isArray(body.brandValues)
         ? body.brandValues.map((s: unknown) => String(s).trim()).filter(Boolean)
@@ -66,7 +70,7 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({
       brand: updated,
-      message: 'Perfil da marca salvo com sucesso.',
+      message: 'Perfil da marca e informações comerciais verificadas salvos com sucesso.',
     });
   } catch (error) {
     console.error('Erro ao atualizar perfil da marca:', error);

@@ -3,7 +3,15 @@ import type {
   AspectRatioSpec,
   ContentCategory,
   ContentFormat,
+  ContentToneProfile,
   DesignTemplateId,
+  LeadInterestType,
+  LeadStage,
+  MediaAssetCategory,
+  MediaAuthenticity,
+  ReelsProductionWorkflow,
+  StoryExecutionMode,
+  StrategicObjective,
 } from '@/types/marketing';
 
 export const CATEGORY_META: Record<
@@ -13,33 +21,170 @@ export const CATEGORY_META: Record<
   educativo: {
     label: 'Educativo',
     shortLabel: 'Educativo',
-    description: 'Ensina ferramentas práticas de educação parental e PNL aplicáveis no dia a dia.',
+    description: 'Desenvolvimento infantil, regulação emocional e ferramentas práticas de parentalidade positiva.',
     toneClass: 'badge-green',
   },
   emocional: {
-    label: 'Emocional',
-    shortLabel: 'Emocional',
-    description: 'Gera identificação profunda, acolhimento e conexão genuína com pais e mães.',
+    label: 'Relacionamento & Vínculo',
+    shortLabel: 'Vínculo',
+    description: 'Conexão familiar genuína e reflexão madura sobre o cotidiano dos pais, sem clichês motivacionais.',
     toneClass: 'badge-purple',
   },
   autoridade: {
-    label: 'Construção de Autoridade',
+    label: 'Autoridade Profissional',
     shortLabel: 'Autoridade',
-    description: 'Posiciona Jessica Nalin e o Método ALMA como referência segura em família.',
+    description: 'Aprofundamento técnico acessível sobre o Método ALMA e PNL aplicada à parentalidade.',
     toneClass: 'badge-gold',
   },
   engajamento: {
-    label: 'Engajamento',
+    label: 'Diálogo & Comunidade',
     shortLabel: 'Engajamento',
-    description: 'Estimula conversas nos comentários e Directs para identificar famílias interessadas.',
+    description: 'Perguntas qualificadas para escutar dúvidas reais das famílias e orientar com responsabilidade.',
     toneClass: 'badge-teal',
   },
   comercial: {
-    label: 'Comercial (Conversão)',
+    label: 'Captação & Serviços',
     shortLabel: 'Comercial',
-    description: 'Convida diretamente para mentoria, diagnóstico familiar ou lista de espera do Método ALMA.',
+    description: 'Apresentação clara e verificada da Mentoria Familiar e avaliações, sem urgência artificial.',
     toneClass: 'badge-plum',
   },
+};
+
+export const STRATEGIC_OBJECTIVE_META: Record<
+  StrategicObjective,
+  { code: 'A' | 'B' | 'C'; label: string; shortLabel: string; description: string; toneClass: string }
+> = {
+  crescimento_audiencia: {
+    code: 'A',
+    label: 'A. Crescimento de audiência',
+    shortLabel: 'A • Crescimento',
+    description: 'Conteúdo compartilhável e útil para alcançar novos pais interessados em educação parental.',
+    toneClass: 'badge-teal',
+  },
+  autoridade_profissional: {
+    code: 'B',
+    label: 'B. Autoridade profissional',
+    shortLabel: 'B • Autoridade',
+    description: 'Demonstra domínio real em desenvolvimento infantil, regulação emocional, PNL e Método ALMA.',
+    toneClass: 'badge-purple',
+  },
+  captacao_clientes: {
+    code: 'C',
+    label: 'C. Captação de clientes',
+    shortLabel: 'C • Captação',
+    description: 'Conecta necessidades reais das famílias aos serviços verificados de Jessica Nalin.',
+    toneClass: 'badge-green',
+  },
+};
+
+export const TONE_PROFILE_META: Record<
+  ContentToneProfile,
+  { label: string; description: string }
+> = {
+  acolhedor_sereno: {
+    label: 'Acolhedor e sereno',
+    description: 'Escuta empática e linguagem calma, sem culpa ou julgamento.',
+  },
+  tecnico_acessivel: {
+    label: 'Técnico e acessível',
+    description: 'Explica desenvolvimento infantil e PNL com clareza e embasamento.',
+  },
+  firme_pratico: {
+    label: 'Firme e prático',
+    description: 'Direto ao ponto, focado em combinados, limites saudáveis e rotina.',
+  },
+  reflexivo_profundo: {
+    label: 'Reflexivo e profundo',
+    description: 'Convida pais a observarem vínculos, valores e amadurecimento emocional.',
+  },
+};
+
+export const STORY_MODE_META: Record<
+  StoryExecutionMode,
+  { label: string; shortLabel: string; description: string; toneClass: string }
+> = {
+  publicacao_automatica: {
+    label: 'Apto para publicação automática (Etapa 2)',
+    shortLabel: 'Story Automático',
+    description: 'Sequência informativa/visual sem adesivos interativos — poderá ser agendada via API oficial.',
+    toneClass: 'badge-green',
+  },
+  acao_manual_instagram: {
+    label: 'Requer ação manual no Instagram',
+    shortLabel: 'Ação Manual (Adesivos)',
+    description: 'Inclui enquete, caixinha de perguntas ou adesivo interativo que precisa ser inserido manualmente no app do Instagram.',
+    toneClass: 'badge-gold',
+  },
+};
+
+export const MEDIA_CATEGORY_META: Record<MediaAssetCategory, { label: string }> = {
+  foto_pessoal: { label: 'Fotografia pessoal' },
+  foto_profissional: { label: 'Fotografia profissional' },
+  video: { label: 'Vídeo gravado' },
+  logo_marca: { label: 'Logo oficial' },
+  material_existente: { label: 'Material de marketing' },
+};
+
+export const MEDIA_AUTHENTICITY_META: Record<
+  MediaAuthenticity,
+  { label: string; shortLabel: string; toneClass: string }
+> = {
+  autentico_jessica: {
+    label: 'Foto/Vídeo autêntico de Jessica',
+    shortLabel: 'Autêntico',
+    toneClass: 'badge-green',
+  },
+  logo_oficial: {
+    label: 'Identidade visual oficial',
+    shortLabel: 'Logo Oficial',
+    toneClass: 'badge-purple',
+  },
+  ilustracao_demo: {
+    label: 'Ilustração demonstrativa (não é foto real de Jessica)',
+    shortLabel: 'Ilustração Demo',
+    toneClass: 'badge-gold',
+  },
+};
+
+export const REELS_STAGE_META: Record<
+  ReelsProductionWorkflow['stage'],
+  { label: string; toneClass: string }
+> = {
+  roteiro_pronto: { label: '1. Roteiro pronto (aguardando gravação)', toneClass: 'badge-neutral' },
+  video_enviado: { label: '2. Vídeo enviado por Jessica', toneClass: 'badge-purple' },
+  edicao_preparada: { label: '3. Legendas, cortes e capa preparados', toneClass: 'badge-gold' },
+  pronto_para_aprovacao: { label: '4. Vídeo finalizado para aprovação', toneClass: 'badge-green' },
+};
+
+export const LEAD_INTEREST_META: Record<
+  LeadInterestType,
+  { label: string; shortLabel: string; toneClass: string }
+> = {
+  mentoria: {
+    label: 'Interessado em Mentoria Familiar',
+    shortLabel: 'Mentoria',
+    toneClass: 'badge-purple',
+  },
+  avaliacao_familiar: {
+    label: 'Interessado em Avaliação Familiar',
+    shortLabel: 'Avaliação Familiar',
+    toneClass: 'badge-green',
+  },
+  informacao: {
+    label: 'Pedido de Informação',
+    shortLabel: 'Informação',
+    toneClass: 'badge-teal',
+  },
+};
+
+export const LEAD_STAGE_META: Record<
+  LeadStage,
+  { label: string; toneClass: string }
+> = {
+  novo: { label: 'Novo contato', toneClass: 'status-pending' },
+  em_conversa: { label: 'Em conversa', toneClass: 'badge-purple' },
+  agendado: { label: 'Conversa agendada', toneClass: 'badge-teal' },
+  concluido: { label: 'Convertido / Concluído', toneClass: 'status-approved' },
 };
 
 export const FORMAT_META: Record<

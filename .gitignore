@@ -8,8 +8,9 @@ node_modules/
 out/
 build/
 
-# Local demo persistence
+# Local demo persistence & uploads
 .data/
+public/uploads/
 
 # Environment variables
 .env

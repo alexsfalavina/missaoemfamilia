@@ -12,10 +12,10 @@ import {
 } from 'lucide-react';
 import type {
   AutomationSettings,
-  ContentCategory,
   IntegrationStatus,
+  StrategicObjective,
 } from '@/types/marketing';
-import { CATEGORY_META } from '@/lib/constants/labels';
+import { STRATEGIC_OBJECTIVE_META } from '@/lib/constants/labels';
 import {
   ErrorBanner,
   LoadingCards,
@@ -34,7 +34,7 @@ export default function AutomationPage() {
 
   const showToast = (type: 'success' | 'error' | 'info', text: string) => {
     setToast({ type, text });
-    setTimeout(() => setToast(null), 3800);
+    setTimeout(() => setToast(null), 4000);
   };
 
   const loadData = useCallback(async () => {
@@ -73,6 +73,26 @@ export default function AutomationPage() {
       showToast('success', data.message || 'Configurações da rotina de sábado salvas!');
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Erro ao salvar.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handlePrepareNextWeek = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/automation', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'prepare_next_week', weekStartDate: '2026-11-30' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha ao preparar lote.');
+      setSettings(data.settings);
+      window.dispatchEvent(new Event('jessica-marketing-updated'));
+      showToast('success', data.message || 'Próximos 7 dias preparados para aprovação de sábado!');
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Erro ao preparar semana.');
     } finally {
       setSaving(false);
     }
@@ -120,12 +140,10 @@ export default function AutomationPage() {
     );
   }
 
-  const categoryKeys: ContentCategory[] = [
-    'educativo',
-    'emocional',
-    'autoridade',
-    'engajamento',
-    'comercial',
+  const objectiveKeys: StrategicObjective[] = [
+    'crescimento_audiencia',
+    'autoridade_profissional',
+    'captacao_clientes',
   ];
 
   return (
@@ -134,11 +152,21 @@ export default function AutomationPage() {
         <div>
           <h1>Automação Semanal & Integrações</h1>
           <p className="page-description">
-            Configure a preparação automática do lote de 7 publicações para revisão todos os sábados
-            em 10 a 15 minutos e acompanhe a prontidão técnica das integrações.
+            Sábado é o dia oficial de aprovação (10–15 min). O sistema prepara os próximos 7 dias
+            antes de sábado e nunca publica nada sem aprovação humana explícita.
           </p>
         </div>
         <div className="page-actions">
+          <button
+            type="button"
+            id="automation-prepare-week-btn"
+            className="btn btn-primary"
+            onClick={handlePrepareNextWeek}
+            disabled={saving}
+          >
+            <Sparkles size={15} />
+            Preparar próximos 7 dias agora
+          </button>
           <button
             type="button"
             className="btn btn-secondary"
@@ -146,7 +174,7 @@ export default function AutomationPage() {
             disabled={saving}
           >
             <RotateCcw size={15} />
-            Restaurar lote inicial (Demo)
+            Restaurar lote inicial
           </button>
         </div>
       </div>
@@ -155,9 +183,9 @@ export default function AutomationPage() {
         <form onSubmit={handleSave} className="card">
           <div className="card-header">
             <div>
-              <h2 className="card-title">Agenda da Revisão de Sábado</h2>
+              <h2 className="card-title">Preparação Pré-Sábado & Revisão Oficial</h2>
               <p className="card-subtitle">
-                O sistema prepara a semana seguinte e deixa tudo pronto para sua aprovação
+                Os 7 conteúdos ficam prontos antes do sábado para revisão rápida
               </p>
             </div>
             <Clock size={18} color="var(--purple-600)" />
@@ -165,29 +193,54 @@ export default function AutomationPage() {
 
           <div className="form-grid">
             <div className="form-group">
-              <label className="form-label" htmlFor="auto-review-day">
-                Dia da revisão semanal
+              <label className="form-label" htmlFor="auto-prep-day">
+                Dia de preparação automática (antes de sábado)
               </label>
               <select
-                id="auto-review-day"
+                id="auto-prep-day"
                 className="select"
-                value={settings.reviewDay}
+                value={settings.preparationDay}
                 onChange={(e) =>
                   setSettings({
                     ...settings,
-                    reviewDay: e.target.value as AutomationSettings['reviewDay'],
+                    preparationDay: e.target.value as 'quinta' | 'sexta',
                   })
                 }
               >
-                <option value="sabado">Sábado (Recomendado — 10 a 15 min)</option>
-                <option value="sexta">Sexta-feira</option>
-                <option value="domingo">Domingo</option>
+                <option value="sexta">Sexta-feira (Recomendado)</option>
+                <option value="quinta">Quinta-feira</option>
               </select>
             </div>
 
             <div className="form-group">
+              <label className="form-label" htmlFor="auto-prep-time">
+                Horário da preparação automática
+              </label>
+              <input
+                id="auto-prep-time"
+                type="time"
+                className="input"
+                value={settings.preparationTime}
+                onChange={(e) => setSettings({ ...settings, preparationTime: e.target.value })}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="auto-review-day">
+                Dia oficial de aprovação humana
+              </label>
+              <input
+                id="auto-review-day"
+                type="text"
+                className="input"
+                value="Sábado (Oficial — 10 a 15 minutos)"
+                disabled
+              />
+            </div>
+
+            <div className="form-group">
               <label className="form-label" htmlFor="auto-ready-time">
-                Horário em que o lote fica pronto
+                Horário disponível para revisão no sábado
               </label>
               <input
                 id="auto-ready-time"
@@ -200,7 +253,7 @@ export default function AutomationPage() {
 
             <div className="form-group">
               <label className="form-label" htmlFor="auto-posts-count">
-                Publicações por semana
+                Publicações preparadas por semana
               </label>
               <input
                 id="auto-posts-count"
@@ -230,36 +283,21 @@ export default function AutomationPage() {
                   })
                 }
               >
-                <option value="whatsapp">WhatsApp (Resumo de Sábado)</option>
+                <option value="whatsapp">WhatsApp (Aviso de Sábado)</option>
                 <option value="email">E-mail</option>
                 <option value="painel">Somente no Painel</option>
               </select>
-            </div>
-
-            <div className="form-group full">
-              <label className="form-label" htmlFor="auto-recipient">
-                Responsável pela revisão
-              </label>
-              <input
-                id="auto-recipient"
-                type="text"
-                className="input"
-                value={settings.notificationRecipient}
-                onChange={(e) =>
-                  setSettings({ ...settings, notificationRecipient: e.target.value })
-                }
-              />
             </div>
           </div>
 
           <div style={{ marginTop: 18 }}>
             <span className="form-label" style={{ display: 'block', marginBottom: 8 }}>
-              Distribuição semanal por pilar estratégico
+              Equilíbrio semanal dos 3 objetivos estratégicos (A / B / C)
             </span>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
-              {categoryKeys.map((cat) => (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
+              {objectiveKeys.map((obj) => (
                 <div
-                  key={cat}
+                  key={obj}
                   style={{
                     padding: '10px 12px',
                     borderRadius: 10,
@@ -269,21 +307,21 @@ export default function AutomationPage() {
                     gap: 6,
                   }}
                 >
-                  <span style={{ fontSize: '0.78rem', fontWeight: 700 }}>
-                    {CATEGORY_META[cat].shortLabel}
+                  <span style={{ fontSize: '0.76rem', fontWeight: 700 }}>
+                    {STRATEGIC_OBJECTIVE_META[obj].shortLabel}
                   </span>
                   <input
                     type="number"
                     min={0}
                     max={7}
                     className="input"
-                    value={settings.categoryMix[cat] ?? 0}
+                    value={settings.objectiveMix[obj] ?? 0}
                     onChange={(e) =>
                       setSettings({
                         ...settings,
-                        categoryMix: {
-                          ...settings.categoryMix,
-                          [cat]: Math.max(0, Number(e.target.value) || 0),
+                        objectiveMix: {
+                          ...settings.objectiveMix,
+                          [obj]: Math.max(0, Number(e.target.value) || 0),
                         },
                       })
                     }
@@ -306,22 +344,36 @@ export default function AutomationPage() {
               gap: 8,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, color: 'var(--green-800)', fontSize: '0.86rem' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontWeight: 700,
+                color: 'var(--green-800)',
+                fontSize: '0.86rem',
+              }}
+            >
               <ShieldCheck size={17} />
               Travas de Segurança Ativas (Não editáveis)
             </div>
             <div style={{ fontSize: '0.82rem', color: 'var(--green-800)' }}>
               • <strong>Aprovação humana explícita:</strong> SEMPRE OBRIGATÓRIA antes de qualquer
-              agendamento definitivo.
+              publicação.
             </div>
             <div style={{ fontSize: '0.82rem', color: 'var(--green-800)' }}>
               • <strong>Publicação automática no Instagram:</strong> DESATIVADA nesta etapa (nunca
-              simula publicação falsa).
+              afirma que um conteúdo foi publicado quando foi apenas aprovado localmente).
             </div>
           </div>
 
           <div style={{ marginTop: 18 }}>
-            <button type="submit" id="automation-save-btn" className="btn btn-primary" disabled={saving}>
+            <button
+              type="submit"
+              id="automation-save-btn"
+              className="btn btn-primary"
+              disabled={saving}
+            >
               <Save size={16} />
               {saving ? 'Salvando...' : 'Salvar configurações da semana'}
             </button>
@@ -334,9 +386,7 @@ export default function AutomationPage() {
             <div className="card-header">
               <div>
                 <h2 className="card-title">Arquitetura de Integrações (Servidor)</h2>
-                <p className="card-subtitle">
-                  Nenhuma chave de API fica exposta no frontend
-                </p>
+                <p className="card-subtitle">Nenhuma chave de API fica exposta no frontend</p>
               </div>
               <Database size={18} color="var(--purple-600)" />
             </div>
@@ -374,7 +424,14 @@ export default function AutomationPage() {
                     gap: 6,
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
                     <strong style={{ fontSize: '0.9rem' }}>{svc.title}</strong>
                     <span className="badge badge-gold">{svc.status}</span>
                   </div>
@@ -401,11 +458,16 @@ export default function AutomationPage() {
 
           <section className="card card-compact" style={{ background: 'var(--purple-50)' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-              <Sparkles size={18} color="var(--purple-700)" style={{ flexShrink: 0, marginTop: 2 }} />
+              <Sparkles
+                size={18}
+                color="var(--purple-700)"
+                style={{ flexShrink: 0, marginTop: 2 }}
+              />
               <div style={{ fontSize: '0.82rem', color: 'var(--purple-900)' }}>
-                <strong>Esquema Supabase pronto para produção:</strong> o arquivo{' '}
-                <code>src/lib/supabase/schema.sql</code> já contém todas as tabelas, auditoria de
-                aprovação humana e políticas RLS preparadas para a Etapa 2.
+                <strong>Esquema Supabase atualizado:</strong>{' '}
+                <code>src/lib/supabase/schema.sql</code> agora inclui{' '}
+                <code>media_assets</code>, <code>potential_customer_leads</code>, modo de Stories e
+                fluxo de produção de Reels.
               </div>
             </div>
           </section>

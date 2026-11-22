@@ -26,6 +26,8 @@ import {
   CATEGORY_META,
   FORMAT_META,
   STATUS_META,
+  STORY_MODE_META,
+  STRATEGIC_OBJECTIVE_META,
   formatNumberPt,
   formatPtDateShort,
 } from '@/lib/constants/labels';
@@ -139,8 +141,8 @@ export default function DashboardPage() {
             </p>
             <p className="banner-text" style={{ marginBottom: 12 }}>
               {metrics.awaitingApprovalCount > 0
-                ? `Restam ${metrics.awaitingApprovalCount} publicações aguardando sua aprovação humana (tempo estimado: ~${metrics.estimatedReviewMinutes} min).`
-                : 'Excelente! Todos os conteúdos desta semana já foram revisados por você.'}
+                ? `Lote dos próximos 7 dias preparado antes de sábado (${metrics.nextSaturdayLabel}). Restam ${metrics.awaitingApprovalCount} publicações para sua aprovação humana (~${metrics.estimatedReviewMinutes} min).`
+                : 'Excelente! Todos os conteúdos desta semana já foram revisados por você (aprovados localmente — sem publicação automática).'}
             </p>
             <div
               className="progress-track"
@@ -234,7 +236,7 @@ export default function DashboardPage() {
             </div>
             <div className="kpi-value">{metrics.publishedPostsCount}</div>
             <div className="kpi-meta">
-              <span>Último mês (histórico)</span>
+              <span>Histórico demonstrativo</span>
               <span className="demo-micro-tag">Demo</span>
             </div>
           </article>
@@ -248,7 +250,7 @@ export default function DashboardPage() {
             </div>
             <div className="kpi-value">{metrics.awaitingApprovalCount}</div>
             <div className="kpi-meta">
-              <span>{metrics.approvedCount} aprovados esta semana</span>
+              <span>{metrics.approvedCount} aprovados localmente</span>
               <Link
                 href="/aprovacao"
                 style={{ color: 'var(--purple-700)', fontWeight: 700 }}
@@ -267,8 +269,17 @@ export default function DashboardPage() {
             </div>
             <div className="kpi-value">{metrics.potentialCustomersCount}</div>
             <div className="kpi-meta">
-              <span className="kpi-delta">+{metrics.potentialCustomersGrowthPercent.toFixed(1).replace('.', ',')}% leads</span>
-              <span className="demo-micro-tag">Demo</span>
+              <span>
+                {metrics.potentialCustomersCount > 0
+                  ? 'Registros reais da equipe'
+                  : 'Sem registros reais (não inventamos leads)'}
+              </span>
+              <Link
+                href="/analytics"
+                style={{ color: 'var(--green-700)', fontWeight: 700 }}
+              >
+                Registrar →
+              </Link>
             </div>
           </article>
         </div>
@@ -281,7 +292,7 @@ export default function DashboardPage() {
             <div>
               <h2 className="card-title">Lote Semanal Preparado ({posts.length} conteúdos)</h2>
               <p className="card-subtitle">
-                Clique em qualquer item para revisar ou aprovar na Central de Aprovação
+                Equilíbrio semanal: Crescimento de audiência, Autoridade profissional e Captação de clientes
               </p>
             </div>
             <Link href="/calendario" className="btn btn-sm btn-secondary">
@@ -295,6 +306,10 @@ export default function DashboardPage() {
               const cat = CATEGORY_META[post.category];
               const fmt = FORMAT_META[post.format];
               const st = STATUS_META[post.status];
+              const obj = STRATEGIC_OBJECTIVE_META[post.strategicObjective];
+              const storyMode = post.storyExecutionMode
+                ? STORY_MODE_META[post.storyExecutionMode]
+                : null;
               return (
                 <Link
                   key={post.id}
@@ -316,8 +331,14 @@ export default function DashboardPage() {
                       <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--purple-800)' }}>
                         {post.dayOfWeek} • {formatPtDateShort(post.recommendedDate)} às {post.recommendedTime}
                       </span>
+                      <span className={`badge ${obj.toneClass}`}>{obj.shortLabel}</span>
                       <span className={`badge ${cat.toneClass}`}>{cat.shortLabel}</span>
                       <span className="badge badge-neutral">{fmt.label}</span>
+                      {storyMode && (
+                        <span className={`badge ${storyMode.toneClass}`}>
+                          {storyMode.shortLabel}
+                        </span>
+                      )}
                     </div>
                     <div
                       style={{
@@ -344,7 +365,7 @@ export default function DashboardPage() {
             <div className="card-header">
               <div>
                 <h2 className="card-title">Identidade da Marca Ativa</h2>
-                <p className="card-subtitle">Base estratégica utilizada pela IA</p>
+                <p className="card-subtitle">Posicionamento e dados verificados pela equipe</p>
               </div>
               <Link href="/marca" className="btn btn-sm btn-secondary">
                 Editar
@@ -376,7 +397,7 @@ export default function DashboardPage() {
                   {brand.instagramHandle}
                 </a>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                  {brand.servicesOffered.length} serviços configurados
+                  {brand.servicesOffered.length} serviços verificados
                 </div>
               </div>
             </div>

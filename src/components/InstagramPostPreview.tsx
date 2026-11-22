@@ -280,6 +280,40 @@ export function InstagramPostPreview({
         </div>
       </div>
 
+      {activeSlide.imageUrl && activeSlide.imageAuthenticity === 'ilustracao_demo' && (
+        <div
+          style={{
+            fontSize: '0.7rem',
+            color: 'var(--gold-700)',
+            background: 'var(--gold-50)',
+            border: '1px solid #E8D6BA',
+            borderRadius: 8,
+            padding: '4px 8px',
+            textAlign: 'center',
+            fontWeight: 600,
+          }}
+        >
+          Ilustração de demonstração — envie fotos autênticas na Biblioteca de Mídia
+        </div>
+      )}
+
+      {activeSlide.imageUrl && activeSlide.imageAuthenticity === 'autentico_jessica' && (
+        <div
+          style={{
+            fontSize: '0.7rem',
+            color: 'var(--green-800)',
+            background: 'var(--green-50)',
+            border: '1px solid var(--green-200)',
+            borderRadius: 8,
+            padding: '4px 8px',
+            textAlign: 'center',
+            fontWeight: 700,
+          }}
+        >
+          Fotografia autêntica da Biblioteca de Jessica
+        </div>
+      )}
+
       {(safeSlides.length > 1 || showExport || onExpand) && (
         <div className="ig-controls">
           {safeSlides.length > 1 ? (

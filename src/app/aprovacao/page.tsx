@@ -10,16 +10,26 @@ import {
   Copy,
   Edit3,
   Film,
+  Hand,
   MessageSquareWarning,
+  Palette,
+  RefreshCw,
+  Save,
+  SlidersHorizontal,
+  Sparkles,
   Target,
   X,
   XCircle,
 } from 'lucide-react';
-import type { ApprovalStatus, ContentPost } from '@/types/marketing';
+import type { ApprovalStatus, ContentPost, ContentToneProfile } from '@/types/marketing';
 import {
   CATEGORY_META,
   FORMAT_META,
+  REELS_STAGE_META,
   STATUS_META,
+  STORY_MODE_META,
+  STRATEGIC_OBJECTIVE_META,
+  TONE_PROFILE_META,
   formatPtDate,
 } from '@/lib/constants/labels';
 import { InstagramPostPreview } from '@/components/InstagramPostPreview';
@@ -40,12 +50,26 @@ export default function ApprovalCentrePage() {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('todos');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
 
-  // Estado para painel inline de Solicitar Alterações ou Rejeitar
+  // Painel inline para Solicitar Alterações ou Rejeitar
   const [activeFeedbackBox, setActiveFeedbackBox] = useState<{
     postId: string;
     mode: 'SOLICITAR_ALTERACOES' | 'REJEITAR';
     text: string;
+  } | null>(null);
+
+  // Edição direta de legenda e CTA no próprio card
+  const [inlineCaptionEdit, setInlineCaptionEdit] = useState<{
+    postId: string;
+    caption: string;
+    cta: string;
+  } | null>(null);
+
+  // Painel inline para Solicitar outro tom
+  const [tonePickerBox, setTonePickerBox] = useState<{
+    postId: string;
+    tone: ContentToneProfile;
   } | null>(null);
 
   // Modal de prévia ampliada
@@ -57,7 +81,7 @@ export default function ApprovalCentrePage() {
 
   const showToast = (type: 'success' | 'error' | 'info', text: string) => {
     setToast({ type, text });
-    setTimeout(() => setToast(null), 3800);
+    setTimeout(() => setToast(null), 4000);
   };
 
   const loadPosts = useCallback(async () => {
@@ -86,6 +110,9 @@ export default function ApprovalCentrePage() {
       aprovado: posts.filter((p) => p.status === 'aprovado').length,
       alteracoes_solicitadas: posts.filter((p) => p.status === 'alteracoes_solicitadas').length,
       rejeitado: posts.filter((p) => p.status === 'rejeitado').length,
+      approvableWeekCount: posts.filter(
+        (p) => p.status !== 'aprovado' && p.status !== 'rejeitado'
+      ).length,
     };
   }, [posts]);
 
@@ -97,14 +124,19 @@ export default function ApprovalCentrePage() {
   const reviewedCount = posts.length - counts.aguardando_aprovacao;
   const reviewPercent = posts.length > 0 ? Math.round((reviewedCount / posts.length) * 100) : 0;
 
+  const markBusy = (ids: string[], active: boolean) => {
+    setBusyIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => (active ? next.add(id) : next.delete(id)));
+      return next;
+    });
+  };
+
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -112,19 +144,11 @@ export default function ApprovalCentrePage() {
   const toggleSelectAllVisible = () => {
     const visibleIds = filteredPosts.map((p) => p.id);
     const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
-    if (allSelected) {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        visibleIds.forEach((id) => next.delete(id));
-        return next;
-      });
-    } else {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        visibleIds.forEach((id) => next.add(id));
-        return next;
-      });
-    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      visibleIds.forEach((id) => (allSelected ? next.delete(id) : next.add(id)));
+      return next;
+    });
   };
 
   const selectAllPending = () => {
@@ -146,12 +170,7 @@ export default function ApprovalCentrePage() {
       return;
     }
 
-    setBusyIds((prev) => {
-      const next = new Set(prev);
-      postIds.forEach((id) => next.add(id));
-      return next;
-    });
-
+    markBusy(postIds, true);
     try {
       const res = await fetch('/api/posts/approval', {
         method: 'POST',
@@ -164,14 +183,11 @@ export default function ApprovalCentrePage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Não foi possível salvar a decisão.');
-      }
+      if (!res.ok) throw new Error(data.error || 'Não foi possível salvar a decisão.');
 
       const updatedMap = new Map<string, ContentPost>(
         (data.updated as ContentPost[]).map((u) => [u.id, u])
       );
-
       setPosts((prev) => prev.map((p) => updatedMap.get(p.id) ?? p));
       setSelectedIds((prev) => {
         const next = new Set(prev);
@@ -184,11 +200,92 @@ export default function ApprovalCentrePage() {
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Erro ao atualizar publicação.');
     } finally {
-      setBusyIds((prev) => {
-        const next = new Set(prev);
-        postIds.forEach((id) => next.delete(id));
-        return next;
+      markBusy(postIds, false);
+    }
+  };
+
+  const handleApproveEntireWeek = async () => {
+    if (counts.approvableWeekCount === 0) return;
+    setBatchBusy(true);
+    try {
+      const res = await fetch('/api/posts/approval', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'APROVAR_LOTE_SEMANAL',
+          actor: 'Jessica Nalin',
+        }),
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao aprovar lote semanal.');
+
+      const updatedMap = new Map<string, ContentPost>(
+        (data.updated as ContentPost[]).map((u) => [u.id, u])
+      );
+      setPosts((prev) => prev.map((p) => updatedMap.get(p.id) ?? p));
+      setSelectedIds(new Set());
+      setActiveFeedbackBox(null);
+      window.dispatchEvent(new Event('jessica-marketing-updated'));
+      showToast('success', data.message || 'Lote semanal aprovado localmente!');
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Falha na aprovação semanal.');
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
+  const handleRegenerateAction = async (
+    postId: string,
+    mode: 'completo' | 'outro_tom' | 'outro_visual',
+    requestedTone?: ContentToneProfile
+  ) => {
+    markBusy([postId], true);
+    try {
+      const res = await fetch(`/api/posts/${postId}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode, requestedTone }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Não foi possível ajustar o conteúdo.');
+
+      setPosts((prev) => prev.map((p) => (p.id === postId ? data.post : p)));
+      setTonePickerBox(null);
+      window.dispatchEvent(new Event('jessica-marketing-updated'));
+      showToast('success', data.message || 'Conteúdo atualizado.');
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Erro ao regenerar conteúdo.');
+    } finally {
+      markBusy([postId], false);
+    }
+  };
+
+  const handleSaveInlineCaption = async (postId: string) => {
+    if (!inlineCaptionEdit || !inlineCaptionEdit.caption.trim()) {
+      showToast('error', 'A legenda não pode ficar vazia.');
+      return;
+    }
+    markBusy([postId], true);
+    try {
+      const res = await fetch(`/api/posts/${postId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          caption: inlineCaptionEdit.caption,
+          cta: inlineCaptionEdit.cta,
+          auditNote: 'Legenda editada diretamente na Central de Aprovação.',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Não foi possível salvar a legenda.');
+
+      setPosts((prev) => prev.map((p) => (p.id === postId ? data.post : p)));
+      setInlineCaptionEdit(null);
+      showToast('success', 'Legenda atualizada diretamente com sucesso.');
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Erro ao salvar legenda.');
+    } finally {
+      markBusy([postId], false);
     }
   };
 
@@ -211,8 +308,9 @@ export default function ApprovalCentrePage() {
         <div>
           <h1>Central de Aprovação</h1>
           <p className="page-description">
-            Revise visualmente as {posts.length} publicações preparadas para a próxima semana.
-            Aprove individualmente ou em lote em 10 a 15 minutos todo sábado.
+            Revise as {posts.length} publicações preparadas para a próxima semana em 10 a 15
+            minutos todo sábado. Edite legendas, ajuste o tom ou o visual, regenere itens
+            individuais ou aprove todo o lote semanal.
           </p>
         </div>
         <div className="page-actions">
@@ -242,8 +340,9 @@ export default function ApprovalCentrePage() {
               Progresso da Revisão Semanal: {reviewedCount} de {posts.length} conteúdos decididos
             </strong>
             <p style={{ margin: '2px 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-              {counts.aprovado} aprovados • {counts.aguardando_aprovacao} aguardando aprovação •{' '}
-              {counts.alteracoes_solicitadas} com ajustes • {counts.rejeitado} rejeitados
+              {counts.aprovado} aprovados localmente • {counts.aguardando_aprovacao} aguardando
+              aprovação • {counts.alteracoes_solicitadas} com ajustes • {counts.rejeitado}{' '}
+              rejeitados
             </p>
           </div>
           <span className="badge badge-purple">{reviewPercent}% concluído</span>
@@ -286,7 +385,7 @@ export default function ApprovalCentrePage() {
         ))}
       </div>
 
-      {/* Barra de Seleção e Aprovação em Lote */}
+      {/* Barra de Seleção, Aprovação em Lote e Aprovação da Semana Inteira */}
       <div className="approval-toolbar">
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
           <label className="checkbox-label">
@@ -316,21 +415,26 @@ export default function ApprovalCentrePage() {
           {selectedIds.size > 0 && (
             <button
               type="button"
-              className="btn btn-sm btn-ghost"
-              onClick={() => setSelectedIds(new Set())}
+              id="approval-batch-approve-btn"
+              className="btn btn-secondary"
+              disabled={busyIds.size > 0 || batchBusy}
+              onClick={() => submitDecision(Array.from(selectedIds), 'APROVAR')}
             >
-              Limpar seleção
+              <CheckCheck size={16} />
+              Aprovar selecionados ({selectedIds.size})
             </button>
           )}
           <button
             type="button"
-            id="approval-batch-approve-btn"
+            id="approval-approve-entire-week-btn"
             className="btn btn-approve"
-            disabled={selectedIds.size === 0 || busyIds.size > 0}
-            onClick={() => submitDecision(Array.from(selectedIds), 'APROVAR')}
+            disabled={counts.approvableWeekCount === 0 || batchBusy || busyIds.size > 0}
+            onClick={handleApproveEntireWeek}
           >
-            <CheckCheck size={17} />
-            Aprovar selecionados ({selectedIds.size})
+            <Sparkles size={16} />
+            {batchBusy
+              ? 'Aprovando semana...'
+              : `Aprovar toda a semana (${counts.approvableWeekCount})`}
           </button>
         </div>
       </div>
@@ -353,9 +457,20 @@ export default function ApprovalCentrePage() {
             const cat = CATEGORY_META[post.category];
             const fmt = FORMAT_META[post.format];
             const st = STATUS_META[post.status];
+            const obj = STRATEGIC_OBJECTIVE_META[post.strategicObjective];
+            const toneMeta = TONE_PROFILE_META[post.toneProfile];
+            const storyMeta = post.storyExecutionMode
+              ? STORY_MODE_META[post.storyExecutionMode]
+              : null;
+            const reelsMeta = post.reelsProduction
+              ? REELS_STAGE_META[post.reelsProduction.stage]
+              : null;
+
             const isSelected = selectedIds.has(post.id);
             const isBusy = busyIds.has(post.id);
             const isFeedbackOpen = activeFeedbackBox?.postId === post.id;
+            const isEditingCaption = inlineCaptionEdit?.postId === post.id;
+            const isToneOpen = tonePickerBox?.postId === post.id;
 
             return (
               <article
@@ -364,7 +479,7 @@ export default function ApprovalCentrePage() {
                 className={`approval-card ${isSelected ? 'selected' : ''}`}
               >
                 <div className="approval-card-grid">
-                  {/* Coluna Esquerda: Prévia Visual Instagram */}
+                  {/* Coluna Esquerda: Prévia Visual Instagram + Vídeo Real (quando Reel) */}
                   <div className="approval-preview-col">
                     <InstagramPostPreview
                       slides={post.slides}
@@ -372,9 +487,34 @@ export default function ApprovalCentrePage() {
                       showExport
                       onExpand={() => setExpandedPost(post)}
                     />
+                    {post.reelsProduction?.uploadedVideoUrl && (
+                      <div style={{ width: '100%', maxWidth: 270 }}>
+                        <div
+                          style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            color: 'var(--green-800)',
+                            marginBottom: 4,
+                          }}
+                        >
+                          Vídeo gravado por Jessica:
+                        </div>
+                        <video
+                          src={post.reelsProduction.uploadedVideoUrl}
+                          controls
+                          style={{
+                            width: '100%',
+                            borderRadius: 12,
+                            border: '1px solid var(--border-subtle)',
+                            maxHeight: 220,
+                            background: '#000',
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
 
-                  {/* Coluna Direita: Metadados, Legenda e Ações */}
+                  {/* Coluna Direita: Metadados, Inteligência Editorial, Legenda Editável e Ações */}
                   <div className="approval-body-col">
                     <div className="approval-card-header">
                       <label className="checkbox-label">
@@ -394,66 +534,195 @@ export default function ApprovalCentrePage() {
 
                     <h2 className="approval-title">{post.title}</h2>
 
-                    {/* Metadados obrigatórios: formato, categoria, data e horário recomendados */}
+                    {/* Metadados: Objetivo Estratégico (A/B/C), Categoria, Formato, Tom, Data/Hora */}
                     <div className="meta-strip">
-                      <span className={`badge ${cat.toneClass}`}>{cat.label}</span>
+                      <span className={`badge ${obj.toneClass}`}>{obj.label}</span>
+                      <span className={`badge ${cat.toneClass}`}>{cat.shortLabel}</span>
                       <span className="badge badge-neutral">
                         {fmt.label} ({post.aspectRatio})
                       </span>
+                      <span className="badge badge-neutral">Tom: {toneMeta.label}</span>
                       <span className="badge badge-purple">
                         <CalendarClock size={13} />
                         {formatPtDate(post.recommendedDate)} às {post.recommendedTime}
                       </span>
+                      {storyMeta && (
+                        <span className={`badge ${storyMeta.toneClass}`}>
+                          {storyMeta.shortLabel}
+                        </span>
+                      )}
+                      {reelsMeta && (
+                        <span className={`badge ${reelsMeta.toneClass}`}>{reelsMeta.label}</span>
+                      )}
                     </div>
 
-                    {/* Objetivo de Marketing */}
+                    {/* Aviso explícito para Stories com ação manual no Instagram */}
+                    {post.format === 'stories' &&
+                      post.storyExecutionMode === 'acao_manual_instagram' && (
+                        <div
+                          style={{
+                            background: 'var(--gold-50)',
+                            border: '1px solid #E5D1B1',
+                            borderRadius: 12,
+                            padding: '10px 13px',
+                            fontSize: '0.81rem',
+                            color: '#63431B',
+                            display: 'flex',
+                            gap: 8,
+                            alignItems: 'flex-start',
+                          }}
+                        >
+                          <Hand size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+                          <div>
+                            <strong>Intervenção manual necessária no Instagram:</strong>{' '}
+                            {post.storyManualInstructions ||
+                              'Adicionar manualmente os adesivos interativos (enquete ou caixinha de perguntas) dentro do aplicativo do Instagram.'}
+                          </div>
+                        </div>
+                      )}
+
+                    {/* Inteligência Editorial (Público, Gancho, Valor Educativo, Objetivo & Serviço) */}
                     <div className="objective-box">
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                         <Target size={16} style={{ flexShrink: 0, marginTop: 2 }} />
-                        <div>
-                          <strong>Objetivo de marketing:</strong> {post.marketingObjective}
-                          {post.conversionFocus && (
-                            <div style={{ marginTop: 3, fontSize: '0.8rem', opacity: 0.9 }}>
-                              <strong>Foco em clientes:</strong> {post.conversionFocus}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <div>
+                            <strong>Público definido:</strong> {post.definedAudience}
+                          </div>
+                          <div>
+                            <strong>Gancho de abertura:</strong> {post.openingHook}
+                          </div>
+                          <div>
+                            <strong>Valor educativo:</strong> {post.educationalValue}
+                          </div>
+                          <div>
+                            <strong>Objetivo de marketing:</strong> {post.marketingObjective}
+                          </div>
+                          {post.serviceConnection && (
+                            <div style={{ fontSize: '0.8rem', opacity: 0.92 }}>
+                              <strong>Conexão com serviço verificado:</strong>{' '}
+                              {post.serviceConnection}
                             </div>
                           )}
                         </div>
                       </div>
                     </div>
 
-                    {/* Legenda */}
+                    {/* Legenda (Visualização ou Edição Direta) */}
                     <div>
                       <div
                         style={{
                           display: 'flex',
+                          flexWrap: 'wrap',
                           alignItems: 'center',
                           justifyContent: 'space-between',
+                          gap: 6,
                           marginBottom: 6,
                         }}
                       >
                         <span className="form-label">Legenda preparada</span>
-                        <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {!isEditingCaption && (
+                            <button
+                              type="button"
+                              id={`btn-editar-legenda-${post.id}`}
+                              className="btn btn-sm btn-secondary"
+                              onClick={() =>
+                                setInlineCaptionEdit({
+                                  postId: post.id,
+                                  caption: post.caption,
+                                  cta: post.cta,
+                                })
+                              }
+                            >
+                              <Edit3 size={13} />
+                              Editar legenda
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="btn btn-sm btn-ghost"
                             onClick={() => handleCopyCaption(post)}
                           >
                             <Copy size={13} />
-                            Copiar texto
+                            Copiar
                           </button>
-                          <Link
-                            href={`/conteudo?edit=${post.id}`}
-                            className="btn btn-sm btn-ghost"
-                          >
-                            <Edit3 size={13} />
-                            Editar no Criador
-                          </Link>
+                          {post.format === 'reels' && (
+                            <Link
+                              href={`/conteudo?tab=reels&post=${post.id}`}
+                              className="btn btn-sm btn-ghost"
+                            >
+                              <Film size={13} />
+                              Produção do Reel
+                            </Link>
+                          )}
                         </div>
                       </div>
-                      <div className="caption-box">{post.caption}</div>
+
+                      {isEditingCaption && inlineCaptionEdit ? (
+                        <div
+                          style={{
+                            background: 'var(--purple-50)',
+                            border: '1px solid var(--purple-200)',
+                            borderRadius: 12,
+                            padding: 12,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 10,
+                          }}
+                        >
+                          <textarea
+                            id={`inline-caption-input-${post.id}`}
+                            className="textarea"
+                            style={{ minHeight: 140 }}
+                            value={inlineCaptionEdit.caption}
+                            onChange={(e) =>
+                              setInlineCaptionEdit({
+                                ...inlineCaptionEdit,
+                                caption: e.target.value,
+                              })
+                            }
+                          />
+                          <div className="form-group">
+                            <label className="form-label">Chamada para ação (CTA)</label>
+                            <input
+                              type="text"
+                              className="input"
+                              value={inlineCaptionEdit.cta}
+                              onChange={(e) =>
+                                setInlineCaptionEdit({
+                                  ...inlineCaptionEdit,
+                                  cta: e.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-secondary"
+                              onClick={() => setInlineCaptionEdit(null)}
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              id={`btn-salvar-legenda-${post.id}`}
+                              className="btn btn-sm btn-primary"
+                              disabled={isBusy}
+                              onClick={() => handleSaveInlineCaption(post.id)}
+                            >
+                              <Save size={13} />
+                              Salvar legenda
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="caption-box">{post.caption}</div>
+                      )}
                     </div>
 
-                    {/* Roteiro resumido para Reels */}
+                    {/* Roteiro de Reels */}
                     {post.reelsScript && post.reelsScript.length > 0 && (
                       <div
                         style={{
@@ -467,15 +736,24 @@ export default function ApprovalCentrePage() {
                           style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 6,
+                            justifyContent: 'space-between',
+                            gap: 8,
                             fontSize: '0.8rem',
                             fontWeight: 700,
                             color: 'var(--green-800)',
                             marginBottom: 6,
                           }}
                         >
-                          <Film size={14} />
-                          Roteiro de Reels ({post.reelsScript.length} cenas)
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <Film size={14} />
+                            Roteiro de Reels ({post.reelsScript.length} cenas — gravação real de Jessica)
+                          </span>
+                          <Link
+                            href={`/conteudo?tab=reels&post=${post.id}`}
+                            style={{ textDecoration: 'underline', fontSize: '0.76rem' }}
+                          >
+                            Enviar vídeo / legendas →
+                          </Link>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                           {post.reelsScript.map((scene) => (
@@ -503,7 +781,116 @@ export default function ApprovalCentrePage() {
                       ))}
                     </div>
 
-                    {/* Feedback registrado anteriormente */}
+                    {/* Ações rápidas de refinamento da IA (Regenerar, Outro Tom, Outro Visual) */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '10px 12px',
+                        borderRadius: 12,
+                        background: 'var(--bg-subtle)',
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          color: 'var(--text-muted)',
+                          marginRight: 4,
+                        }}
+                      >
+                        Ajustes rápidos:
+                      </span>
+                      <button
+                        type="button"
+                        id={`btn-regenerar-${post.id}`}
+                        className="btn btn-sm btn-secondary"
+                        disabled={isBusy}
+                        onClick={() => handleRegenerateAction(post.id, 'completo')}
+                      >
+                        <RefreshCw size={13} />
+                        Regenerar conteúdo
+                      </button>
+                      <button
+                        type="button"
+                        id={`btn-outro-tom-${post.id}`}
+                        className="btn btn-sm btn-secondary"
+                        disabled={isBusy}
+                        onClick={() =>
+                          setTonePickerBox(
+                            isToneOpen ? null : { postId: post.id, tone: post.toneProfile }
+                          )
+                        }
+                      >
+                        <SlidersHorizontal size={13} />
+                        Solicitar outro tom
+                      </button>
+                      <button
+                        type="button"
+                        id={`btn-outro-visual-${post.id}`}
+                        className="btn btn-sm btn-secondary"
+                        disabled={isBusy}
+                        onClick={() => handleRegenerateAction(post.id, 'outro_visual')}
+                      >
+                        <Palette size={13} />
+                        Solicitar outro visual
+                      </button>
+                    </div>
+
+                    {/* Seletor inline de Tom */}
+                    {isToneOpen && tonePickerBox && (
+                      <div
+                        style={{
+                          background: 'var(--purple-50)',
+                          border: '1px solid var(--purple-200)',
+                          borderRadius: 12,
+                          padding: 12,
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          alignItems: 'center',
+                          gap: 10,
+                        }}
+                      >
+                        <select
+                          className="select"
+                          style={{ maxWidth: 260 }}
+                          value={tonePickerBox.tone}
+                          onChange={(e) =>
+                            setTonePickerBox({
+                              ...tonePickerBox,
+                              tone: e.target.value as ContentToneProfile,
+                            })
+                          }
+                        >
+                          {(Object.keys(TONE_PROFILE_META) as ContentToneProfile[]).map((t) => (
+                            <option key={t} value={t}>
+                              {TONE_PROFILE_META[t].label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary"
+                          disabled={isBusy}
+                          onClick={() =>
+                            handleRegenerateAction(post.id, 'outro_tom', tonePickerBox.tone)
+                          }
+                        >
+                          Aplicar novo tom
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => setTonePickerBox(null)}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Feedback registrado */}
                     {post.approvalFeedback && (
                       <div className="feedback-recorded">
                         <strong>Observação registrada:</strong> {post.approvalFeedback}
@@ -527,8 +914,8 @@ export default function ApprovalCentrePage() {
                           style={{ minHeight: 74 }}
                           placeholder={
                             activeFeedbackBox.mode === 'SOLICITAR_ALTERACOES'
-                              ? 'Ex.: Deixar o tom da legenda mais acolhedor no início e mencionar a turma de dezembro.'
-                              : 'Ex.: Tema já abordado recentemente.'
+                              ? 'Ex.: Ajustar exemplo prático para crianças de 6 a 9 anos.'
+                              : 'Ex.: Preferimos guardar esse tema para o próximo mês.'
                           }
                           value={activeFeedbackBox.text}
                           onChange={(e) =>
@@ -582,7 +969,7 @@ export default function ApprovalCentrePage() {
                         {post.status === 'aprovado' ? (
                           <>
                             <CheckCircle2 size={16} />
-                            Aprovado
+                            Aprovado localmente
                           </>
                         ) : (
                           <>
@@ -630,12 +1017,12 @@ export default function ApprovalCentrePage() {
                         <span
                           style={{
                             marginLeft: 'auto',
-                            fontSize: '0.76rem',
+                            fontSize: '0.75rem',
                             color: 'var(--green-800)',
                             fontWeight: 600,
                           }}
                         >
-                          Aprovado por {post.approvedBy || 'Jessica Nalin'} • Sem publicação automática
+                          Aprovado localmente por {post.approvedBy || 'Jessica Nalin'} (não publicado)
                         </span>
                       )}
                     </div>

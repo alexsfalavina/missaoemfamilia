@@ -1,11 +1,14 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import {
+  Image as ImageIcon,
   Palette,
   Plus,
   RotateCcw,
   Save,
+  ShieldCheck,
   Sparkles,
   Target,
   Trash2,
@@ -24,6 +27,7 @@ export default function BrandProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [newService, setNewService] = useState('');
   const [newObjective, setNewObjective] = useState('');
+  const [newPillar, setNewPillar] = useState('');
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(
     null
   );
@@ -126,6 +130,23 @@ export default function BrandProfilePage() {
     });
   };
 
+  const addPillar = () => {
+    if (!brand || !newPillar.trim()) return;
+    setBrand({
+      ...brand,
+      positioningPillars: [...brand.positioningPillars, newPillar.trim()],
+    });
+    setNewPillar('');
+  };
+
+  const removePillar = (idx: number) => {
+    if (!brand) return;
+    setBrand({
+      ...brand,
+      positioningPillars: brand.positioningPillars.filter((_, i) => i !== idx),
+    });
+  };
+
   if (loading) {
     return (
       <div>
@@ -154,8 +175,9 @@ export default function BrandProfilePage() {
         <div>
           <h1>Perfil da Marca — Jessica Nalin</h1>
           <p className="page-description">
-            Defina posicionamento, serviços, tom de voz, identidade visual e objetivos de negócio.
-            Toda estratégia e legenda gerada pela IA segue estas diretrizes.
+            Defina posicionamento profissional, serviços reais, informações comerciais verificadas,
+            tom de voz e identidade visual. A IA utiliza somente informações verificadas deste
+            perfil.
           </p>
         </div>
         <div className="page-actions">
@@ -181,13 +203,13 @@ export default function BrandProfilePage() {
       </div>
 
       <div className="two-col-grid" style={{ alignItems: 'start' }}>
-        {/* Coluna Principal: Dados Editáveis */}
+        {/* Coluna Principal */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <section className="card">
             <div className="card-header">
               <div>
-                <h2 className="card-title">Identidade & Posicionamento</h2>
-                <p className="card-subtitle">Informações centrais da marca no Instagram</p>
+                <h2 className="card-title">Identidade & Posicionamento Profissional</h2>
+                <p className="card-subtitle">Base de credibilidade utilizada na criação de conteúdos</p>
               </div>
               <Sparkles size={18} color="var(--purple-600)" />
             </div>
@@ -272,15 +294,164 @@ export default function BrandProfilePage() {
                 />
               </div>
             </div>
+
+            <div style={{ marginTop: 16 }}>
+              <span className="form-label" style={{ display: 'block', marginBottom: 8 }}>
+                Pilares de Posicionamento Profissional
+              </span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                {brand.positioningPillars.map((pillar, idx) => (
+                  <span
+                    key={`${pillar}-${idx}`}
+                    className="badge badge-purple"
+                    style={{ gap: 6, padding: '5px 10px' }}
+                  >
+                    {pillar}
+                    <button
+                      type="button"
+                      onClick={() => removePillar(idx)}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        padding: 0,
+                        display: 'inline-flex',
+                      }}
+                      aria-label={`Remover pilar ${pillar}`}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="Adicionar especialidade ou pilar..."
+                  value={newPillar}
+                  onChange={(e) => setNewPillar(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addPillar();
+                    }
+                  }}
+                />
+                <button type="button" className="btn btn-secondary" onClick={addPillar}>
+                  <Plus size={15} />
+                  Adicionar
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {/* Informações Comerciais Verificadas */}
+          <section className="card">
+            <div className="card-header">
+              <div>
+                <h2 className="card-title">Informações Comerciais Verificadas</h2>
+                <p className="card-subtitle">
+                  Fonte única de verdade para posts comerciais — a IA nunca inventa vagas,
+                  depoimentos ou ofertas relâmpago
+                </p>
+              </div>
+              <ShieldCheck size={18} color="var(--green-600)" />
+            </div>
+
+            <div className="form-grid">
+              <div className="form-group full">
+                <label className="form-label" htmlFor="comm-enrollment">
+                  Como os interessados entram em contato / processo real de atendimento
+                </label>
+                <textarea
+                  id="comm-enrollment"
+                  className="textarea"
+                  value={brand.verifiedCommercialInfo.enrollmentProcess}
+                  onChange={(e) =>
+                    setBrand({
+                      ...brand,
+                      verifiedCommercialInfo: {
+                        ...brand.verifiedCommercialInfo,
+                        enrollmentProcess: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="form-group full">
+                <label className="form-label" htmlFor="comm-format">
+                  Formato verificado dos atendimentos
+                </label>
+                <input
+                  id="comm-format"
+                  type="text"
+                  className="input"
+                  value={brand.verifiedCommercialInfo.consultationFormat}
+                  onChange={(e) =>
+                    setBrand({
+                      ...brand,
+                      verifiedCommercialInfo: {
+                        ...brand.verifiedCommercialInfo,
+                        consultationFormat: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="form-group full">
+                <label className="form-label" htmlFor="comm-offer">
+                  Nota de agenda / condição ativa confirmada por Jessica (opcional)
+                </label>
+                <textarea
+                  id="comm-offer"
+                  className="textarea"
+                  style={{ minHeight: 72 }}
+                  value={brand.verifiedCommercialInfo.activeOfferNote}
+                  onChange={(e) =>
+                    setBrand({
+                      ...brand,
+                      verifiedCommercialInfo: {
+                        ...brand.verifiedCommercialInfo,
+                        activeOfferNote: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="form-group full">
+                <label className="form-label" htmlFor="comm-avoid">
+                  Diretrizes rígidas de veracidade (o que a IA nunca deve afirmar)
+                </label>
+                <textarea
+                  id="comm-avoid"
+                  className="textarea"
+                  style={{ minHeight: 72 }}
+                  value={brand.verifiedCommercialInfo.avoidClaimsNote}
+                  onChange={(e) =>
+                    setBrand({
+                      ...brand,
+                      verifiedCommercialInfo: {
+                        ...brand.verifiedCommercialInfo,
+                        avoidClaimsNote: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </div>
+            </div>
           </section>
 
           {/* Serviços Oferecidos */}
           <section className="card">
             <div className="card-header">
               <div>
-                <h2 className="card-title">Serviços Oferecidos</h2>
+                <h2 className="card-title">Serviços Oferecidos (Verificados)</h2>
                 <p className="card-subtitle">
-                  Produtos e mentorias que a IA deve promover para gerar clientes
+                  Serviços reais que podem ser conectados naturalmente aos conteúdos
                 </p>
               </div>
             </div>
@@ -316,7 +487,7 @@ export default function BrandProfilePage() {
               <input
                 type="text"
                 className="input"
-                placeholder="Adicionar novo serviço ou mentoria..."
+                placeholder="Adicionar novo serviço verificado..."
                 value={newService}
                 onChange={(e) => setNewService(e.target.value)}
                 onKeyDown={(e) => {
@@ -339,7 +510,7 @@ export default function BrandProfilePage() {
               <div>
                 <h2 className="card-title">Objetivos de Negócio</h2>
                 <p className="card-subtitle">
-                  Foco em captação de clientes reais, não apenas métricas de vaidade
+                  Equilíbrio entre crescimento, autoridade profissional e captação ética
                 </p>
               </div>
               <Target size={18} color="var(--green-600)" />
@@ -379,7 +550,7 @@ export default function BrandProfilePage() {
               <input
                 type="text"
                 className="input"
-                placeholder="Adicionar novo objetivo comercial..."
+                placeholder="Adicionar novo objetivo..."
                 value={newObjective}
                 onChange={(e) => setNewObjective(e.target.value)}
                 onKeyDown={(e) => {
@@ -397,13 +568,13 @@ export default function BrandProfilePage() {
           </section>
         </div>
 
-        {/* Coluna Lateral: Identidade Visual & Ativos Reais */}
+        {/* Coluna Lateral: Identidade Visual & Acesso à Biblioteca de Mídia Autêntica */}
         <aside style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <section className="card">
             <div className="card-header">
               <div>
                 <h2 className="card-title">Identidade Visual</h2>
-                <p className="card-subtitle">Paleta roxa & verde e tipografia oficial</p>
+                <p className="card-subtitle">Paleta roxa & verde e diretrizes de autenticidade</p>
               </div>
               <Palette size={18} color="var(--purple-600)" />
             </div>
@@ -510,7 +681,7 @@ export default function BrandProfilePage() {
 
               <div className="form-group">
                 <label className="form-label" htmlFor="brand-guidelines">
-                  Diretrizes visuais para o Designer IA
+                  Diretrizes visuais e autenticidade
                 </label>
                 <textarea
                   id="brand-guidelines"
@@ -533,17 +704,22 @@ export default function BrandProfilePage() {
           <section className="card">
             <div className="card-header">
               <div>
-                <h2 className="card-title">Ativos Oficiais da Marca</h2>
-                <p className="card-subtitle">Logos e retrato aplicados automaticamente nas artes</p>
+                <h2 className="card-title">Logos Oficiais & Mídia Autêntica</h2>
+                <p className="card-subtitle">
+                  Envie fotografias reais de Jessica para conteúdos de autoridade
+                </p>
               </div>
+              <Link href="/conteudo?tab=midia" className="btn btn-sm btn-secondary">
+                <ImageIcon size={14} />
+                Biblioteca
+              </Link>
             </div>
 
-            <div className="equal-two-col" style={{ gap: 12 }}>
+            <div className="equal-two-col" style={{ gap: 12, marginBottom: 12 }}>
               {[
                 { src: '/brand/jessy-logo.jpg', label: 'Logo Principal' },
                 { src: '/brand/jn-monogram.jpg', label: 'Monograma JN' },
                 { src: '/brand/metodo-alma.jpg', label: 'Método ALMA' },
-                { src: '/brand/jessica-portrait.jpg', label: 'Retrato Jessica' },
               ].map((asset) => (
                 <div
                   key={asset.label}
@@ -563,8 +739,8 @@ export default function BrandProfilePage() {
                     alt={asset.label}
                     style={{
                       width: '100%',
-                      height: 86,
-                      objectFit: asset.label === 'Retrato Jessica' ? 'cover' : 'contain',
+                      height: 76,
+                      objectFit: 'contain',
                       borderRadius: 8,
                     }}
                   />
@@ -573,6 +749,20 @@ export default function BrandProfilePage() {
                   </span>
                 </div>
               ))}
+            </div>
+
+            <div
+              style={{
+                fontSize: '0.78rem',
+                color: 'var(--text-secondary)',
+                background: 'var(--purple-50)',
+                borderRadius: 10,
+                padding: '10px 12px',
+              }}
+            >
+              <strong>Compromisso de autenticidade:</strong> imagens geradas por IA nunca são
+              apresentadas como fotografias reais de Jessica. Envie fotos pessoais e profissionais
+              na <Link href="/conteudo?tab=midia" style={{ color: 'var(--purple-700)', fontWeight: 700, textDecoration: 'underline' }}>Biblioteca de Mídia</Link>.
             </div>
           </section>
         </aside>

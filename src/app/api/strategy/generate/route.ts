@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getBrandProfile, replaceWeeklyPosts } from '@/lib/store/repository';
+import {
+  getBrandProfile,
+  listMediaAssets,
+  listPosts,
+  replaceWeeklyPosts,
+} from '@/lib/store/repository';
 import { getGeminiMarketingService } from '@/lib/integrations/gemini';
 
 export async function POST(request: NextRequest) {
@@ -11,13 +16,19 @@ export async function POST(request: NextRequest) {
         : '2026-11-23';
     const focusTheme = typeof body?.focusTheme === 'string' ? body.focusTheme.trim() : '';
 
-    const brand = await getBrandProfile();
+    const [brand, mediaLibrary, existingPosts] = await Promise.all([
+      getBrandProfile(),
+      listMediaAssets(),
+      listPosts(),
+    ]);
     const gemini = getGeminiMarketingService();
 
     const generatedPosts = await gemini.generateWeeklyPlan({
       brand,
       weekStartDate,
       focusTheme,
+      mediaLibrary,
+      existingTitles: existingPosts.map((p) => p.title),
     });
 
     const savedPosts = await replaceWeeklyPosts(generatedPosts);
@@ -26,7 +37,7 @@ export async function POST(request: NextRequest) {
       posts: savedPosts,
       mode: gemini.getMode(),
       message:
-        'Plano semanal com 7 conteúdos estratégicos gerado em modo demonstração e enviado para a Central de Aprovação.',
+        'Plano semanal equilibrado (Crescimento, Autoridade e Captação) gerado com 7 conteúdos prontos para revisão de sábado.',
     });
   } catch (error) {
     console.error('Erro ao gerar estratégia semanal:', error);
