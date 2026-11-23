@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/auth/session';
 import { getIntegrationStatus } from '@/lib/store/repository';
 
 export async function GET() {
+  const auth = await requireApiAuth();
+  if (!auth.ok) return auth.response;
+
   try {
     const status = await getIntegrationStatus();
     return NextResponse.json(status);

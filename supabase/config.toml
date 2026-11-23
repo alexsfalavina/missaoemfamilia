@@ -1,0 +1,13 @@
+# Configuração local da Supabase CLI — ambiente DEV (jessica-ai-marketing-dev / eu-west-1)
+# Não contém chaves, senhas nem project-ref de produção.
+project_id = "jessica-ai-marketing-dev"
+
+[db]
+major_version = 17
+
+[db.migrations]
+enabled = true
+schema_paths = []
+
+[db.seed]
+enabled = false

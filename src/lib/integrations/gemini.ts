@@ -20,6 +20,7 @@ export interface GeminiServerConfig {
 
 export interface GenerateWeeklyPlanInput {
   brand: BrandProfile;
+  batchId: string;
   weekStartDate: string; // YYYY-MM-DD (Segunda-feira)
   focusTheme?: string;
   mediaLibrary?: MediaAsset[];
@@ -28,6 +29,7 @@ export interface GenerateWeeklyPlanInput {
 
 export interface GenerateSingleContentInput {
   brand: BrandProfile;
+  batchId: string;
   topic: string;
   category: ContentCategory;
   strategicObjective?: StrategicObjective;
@@ -460,6 +462,7 @@ class DemoGeminiMarketingService implements IGeminiMarketingService {
 
       const postBase: ContentPost = {
         id: makeId(`post-w-${idx + 1}`),
+        batchId: input.batchId,
         weekLabel,
         dayOfWeek: getWeekdayNameFromDate(dateStr),
         title: item.title,
@@ -605,6 +608,7 @@ class DemoGeminiMarketingService implements IGeminiMarketingService {
 
     const post: ContentPost = {
       id: makeId('post-custom'),
+      batchId: input.batchId,
       weekLabel: 'Planejamento semanal ativo',
       dayOfWeek,
       title: topicClean,

@@ -10,11 +10,14 @@ import {
   Clock,
   HeartHandshake,
   LayoutDashboard,
+  LogOut,
   Menu,
   Sparkles,
   Wand2,
   X,
 } from 'lucide-react';
+import type { AuthUser } from '@/types/marketing';
+import { USER_ROLE_META } from '@/lib/constants/labels';
 
 interface NavItemConfig {
   href: string;
@@ -105,7 +108,7 @@ const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
   },
   '/automacao': {
     title: 'Automação Semanal & Integrações',
-    subtitle: 'Rotina de sábado e prontidão Supabase, Gemini e Instagram API',
+    subtitle: 'Rotina de sábado e prontidão Supabase, Gemini e Metricool',
   },
 };
 
@@ -113,19 +116,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [pendingCount, setPendingCount] = useState<number | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const isAuthPage = pathname === '/login';
 
   const loadPendingCount = useCallback(async () => {
+    if (isAuthPage) return;
     try {
-      const res = await fetch('/api/dashboard', { cache: 'no-store' });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (typeof data?.metrics?.awaitingApprovalCount === 'number') {
-        setPendingCount(data.metrics.awaitingApprovalCount);
+      const [dashRes, meRes] = await Promise.all([
+        fetch('/api/dashboard', { cache: 'no-store' }),
+        fetch('/api/auth/me', { cache: 'no-store' }),
+      ]);
+      if (dashRes.ok) {
+        const data = await dashRes.json();
+        if (typeof data?.metrics?.awaitingApprovalCount === 'number') {
+          setPendingCount(data.metrics.awaitingApprovalCount);
+        }
+      }
+      if (meRes.ok) {
+        const meData = await meRes.json();
+        if (meData?.user) setCurrentUser(meData.user as AuthUser);
       }
     } catch {
       // Silencioso no badge lateral
     }
-  }, []);
+  }, [isAuthPage]);
 
   useEffect(() => {
     loadPendingCount();
@@ -135,6 +151,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     window.addEventListener('jessica-marketing-updated', handler);
     return () => window.removeEventListener('jessica-marketing-updated', handler);
   }, [loadPendingCount, pathname]);
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } finally {
+      window.location.href = '/login';
+    }
+  };
+
+  if (isAuthPage) {
+    return <>{children}</>;
+  }
 
   const currentMeta = PAGE_TITLES[pathname] ?? {
     title: 'JESSICA AI MARKETING',
@@ -245,10 +274,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               alt="Foto de Jessica Nalin"
               className="user-avatar"
             />
-            <div className="user-meta">
-              <div className="user-name">Jessica Nalin</div>
-              <div className="user-role">Educação Parental • Método ALMA</div>
+            <div className="user-meta" style={{ minWidth: 0, flex: 1 }}>
+              <div className="user-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {currentUser?.name || 'Jessica Nalin'}
+              </div>
+              <div className="user-role">
+                {currentUser ? USER_ROLE_META[currentUser.role].label : 'Educação Parental'}
+              </div>
             </div>
+            <button
+              type="button"
+              id="sidebar-logout-btn"
+              onClick={handleLogout}
+              disabled={loggingOut}
+              title="Encerrar sessão"
+              aria-label="Sair da conta"
+              className="btn btn-sm btn-ghost"
+              style={{ padding: '6px 8px', flexShrink: 0 }}
+            >
+              <LogOut size={15} />
+            </button>
           </div>
         </div>
       </aside>

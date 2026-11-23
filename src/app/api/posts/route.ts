@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/auth/session';
 import {
   createPost,
+  ensureActiveBatch,
   getBrandProfile,
   listMediaAssets,
   listPosts,
+  listWeeklyBatches,
 } from '@/lib/store/repository';
 import { getGeminiMarketingService } from '@/lib/integrations/gemini';
-import { FORMAT_META, getWeekdayNameFromDate } from '@/lib/constants/labels';
+import {
+  FORMAT_META,
+  getNextMondayIso,
+  getWeekdayNameFromDate,
+} from '@/lib/constants/labels';
 import type {
   ApprovalStatus,
   ContentCategory,
@@ -17,14 +24,29 @@ import type {
 } from '@/types/marketing';
 
 export async function GET(request: NextRequest) {
+  const auth = await requireApiAuth();
+  if (!auth.ok) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const status = (searchParams.get('status') as ApprovalStatus | 'todos' | null) ?? 'todos';
     const category = searchParams.get('category') ?? 'todos';
     const format = searchParams.get('format') ?? 'todos';
+    const batchId = searchParams.get('batchId') || undefined;
+    const includeAllBatches = searchParams.get('includeAllBatches') === 'true';
 
-    const posts = await listPosts({ status, category, format });
-    return NextResponse.json({ posts, dataSource: 'demo' });
+    const [posts, batches] = await Promise.all([
+      listPosts({ batchId, status, category, format, includeAllBatches }),
+      listWeeklyBatches(),
+    ]);
+    const activeBatch = batches.find((b) => b.status === 'ativo') ?? batches[0];
+
+    return NextResponse.json({
+      posts,
+      batches,
+      activeBatchId: activeBatch?.id || '',
+      dataSource: 'demo',
+    });
   } catch (error) {
     console.error('Erro ao listar publicações:', error);
     return NextResponse.json(
@@ -35,8 +57,17 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireApiAuth({ roles: ['owner', 'editor'] });
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
+    const activeBatch = await ensureActiveBatch(auth.user.name);
+    const targetBatchId =
+      typeof body?.batchId === 'string' && body.batchId.trim()
+        ? body.batchId.trim()
+        : activeBatch.id;
+    const defaultDate = activeBatch.weekStartDate || getNextMondayIso();
 
     if (body?.mode === 'generate') {
       const topic = String(body.topic ?? '').trim();
@@ -54,6 +85,7 @@ export async function POST(request: NextRequest) {
       const gemini = getGeminiMarketingService();
       const generated = await gemini.generateSingleContent({
         brand,
+        batchId: targetBatchId,
         topic,
         category: (body.category as ContentCategory) || 'educativo',
         strategicObjective: body.strategicObjective as StrategicObjective | undefined,
@@ -62,12 +94,16 @@ export async function POST(request: NextRequest) {
         marketingObjective:
           String(body.marketingObjective ?? '').trim() ||
           'Oferecer valor educativo concreto e abrir conversas qualificadas com famílias.',
-        recommendedDate: String(body.recommendedDate || '2026-11-26'),
+        recommendedDate: String(body.recommendedDate || defaultDate),
         recommendedTime: String(body.recommendedTime || '19:00'),
         mediaLibrary,
       });
 
-      const saved = await createPost(generated);
+      const saved = await createPost({
+        ...generated,
+        batchId: targetBatchId,
+        weekLabel: activeBatch.weekLabel,
+      });
       return NextResponse.json(
         {
           post: saved,
@@ -81,7 +117,7 @@ export async function POST(request: NextRequest) {
     const caption = String(body?.caption ?? '').trim();
     const format = (body?.format as ContentFormat) || 'post_unico';
     const category = (body?.category as ContentCategory) || 'educativo';
-    const recommendedDate = String(body?.recommendedDate || '2026-11-26');
+    const recommendedDate = String(body?.recommendedDate || defaultDate);
     const recommendedTime = String(body?.recommendedTime || '19:00');
     const strategicObjective: StrategicObjective =
       body?.strategicObjective ??
@@ -107,7 +143,8 @@ export async function POST(request: NextRequest) {
 
     const newPost: ContentPost = {
       id: `post-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      weekLabel: String(body.weekLabel || 'Semana de 23/11 a 29/11'),
+      batchId: targetBatchId,
+      weekLabel: String(body.weekLabel || activeBatch.weekLabel),
       dayOfWeek: getWeekdayNameFromDate(recommendedDate),
       title,
       category,

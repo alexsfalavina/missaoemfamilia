@@ -1,17 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/auth/session';
 import {
+  createNewWeeklyBatchWithPosts,
   getAutomationSettings,
   getBrandProfile,
   getIntegrationStatus,
+  isDemoResetAllowed,
   listMediaAssets,
   listPosts,
-  replaceWeeklyPosts,
   resetDemoData,
   updateAutomationSettings,
 } from '@/lib/store/repository';
 import { getGeminiMarketingService } from '@/lib/integrations/gemini';
+import { addDaysIso, getNextMondayIso } from '@/lib/constants/labels';
 
 export async function GET() {
+  const auth = await requireApiAuth();
+  if (!auth.ok) return auth.response;
+
   try {
     const [settings, integrationStatus] = await Promise.all([
       getAutomationSettings(),
@@ -28,10 +34,28 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
+  const auth = await requireApiAuth({ roles: ['owner', 'editor'] });
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
 
     if (body?.action === 'reset_demo') {
+      if (auth.user.role !== 'owner') {
+        return NextResponse.json(
+          { error: 'Apenas a proprietária pode restaurar o lote inicial.' },
+          { status: 403 }
+        );
+      }
+      if (!isDemoResetAllowed()) {
+        return NextResponse.json(
+          {
+            error:
+              'Restauração de dados demonstrativos está desabilitada neste ambiente (bloqueada em produção e quando ALLOW_DEMO_SEED não está ativo).',
+          },
+          { status: 403 }
+        );
+      }
       await resetDemoData();
       const settings = await getAutomationSettings();
       return NextResponse.json({
@@ -44,27 +68,35 @@ export async function PUT(request: NextRequest) {
       const [brand, mediaLibrary, existing] = await Promise.all([
         getBrandProfile(),
         listMediaAssets(),
-        listPosts(),
+        listPosts({ includeAllBatches: true }),
       ]);
       const gemini = getGeminiMarketingService();
       const nextWeekStart =
         typeof body.weekStartDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.weekStartDate)
           ? body.weekStartDate
-          : '2026-11-30';
+          : addDaysIso(getNextMondayIso(), 7);
+      const batchId = `batch-${nextWeekStart}-${Date.now()}`;
       const generated = await gemini.generateWeeklyPlan({
         brand,
+        batchId,
         weekStartDate: nextWeekStart,
         focusTheme: typeof body.focusTheme === 'string' ? body.focusTheme : '',
         mediaLibrary,
         existingTitles: existing.map((p) => p.title),
       });
-      await replaceWeeklyPosts(generated);
+      const { batch } = await createNewWeeklyBatchWithPosts({
+        weekStartDate: nextWeekStart,
+        focusTheme: typeof body.focusTheme === 'string' ? body.focusTheme : undefined,
+        createdBy: auth.user.name,
+        posts: generated,
+      });
       const settings = await getAutomationSettings();
       return NextResponse.json({
         settings,
+        batch,
         preparedCount: generated.length,
         message:
-          'Lote dos próximos 7 dias preparado com equilíbrio estratégico e disponível para a revisão de sábado.',
+          'Novo lote semanal preparado com equilíbrio estratégico e disponível para a revisão de sábado. O lote anterior foi arquivado no histórico.',
       });
     }
 

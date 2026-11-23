@@ -295,6 +295,36 @@ export function formatNumberPt(value: number): string {
   return new Intl.NumberFormat('pt-BR').format(value);
 }
 
+export const USER_ROLE_META = {
+  owner: { label: 'Proprietária', toneClass: 'badge-purple' },
+  editor: { label: 'Editor(a)', toneClass: 'badge-green' },
+  viewer: { label: 'Visualização', toneClass: 'badge-neutral' },
+} as const;
+
+export function addDaysIso(isoDate: string, days: number): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(y, (m || 1) - 1, (d || 1) + days);
+  const yyyy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+export function getNextMondayIso(referenceDate = new Date()): string {
+  const dt = new Date(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    referenceDate.getDate()
+  );
+  const day = dt.getDay(); // 0=Dom, 1=Seg, ...
+  const diffToMonday = day === 1 ? 0 : day === 0 ? 1 : 8 - day;
+  dt.setDate(dt.getDate() + diffToMonday);
+  const yyyy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export function getWeekdayNameFromDate(isoDate: string): string {
   const [year, month, day] = isoDate.split('-').map(Number);
   if (!year || !month || !day) return 'Segunda-feira';

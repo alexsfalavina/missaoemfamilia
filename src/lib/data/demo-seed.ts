@@ -1,7 +1,42 @@
-import type { MarketingDatabase } from '@/types/marketing';
+import type { KnowledgeDocumentRef, MarketingDatabase } from '@/types/marketing';
+import { addDaysIso, formatPtDateShort, getNextMondayIso } from '@/lib/constants/labels';
+
+export const OFFICIAL_KNOWLEDGE_DOCUMENTS: KnowledgeDocumentRef[] = [
+  {
+    id: 'doc-mapa-conhecimento-v1-1',
+    title: 'MAPA DE CONHECIMENTO — JESSICA NALIN — VERSÃO 1.1',
+    version: '1.1',
+    slug: 'mapa-de-conhecimento-jessica-nalin-v1-1',
+    status: 'aguardando_importacao_p2',
+    description:
+      'Referência oficial registrada para a P2. O texto original será importado integralmente sem substituição ou invenção.',
+  },
+  {
+    id: 'doc-auditoria-conformidade-v1-1',
+    title: 'AUDITORIA CRÍTICA E PROTOCOLO DE CONFORMIDADE — VERSÃO 1.1',
+    version: '1.1',
+    slug: 'auditoria-critica-protocolo-conformidade-v1-1',
+    status: 'aguardando_importacao_p2',
+    description:
+      'Referência oficial de conformidade editorial registrada para a P2. O texto original será importado integralmente.',
+  },
+  {
+    id: 'doc-dna-editorial-v1-3',
+    title: 'DNA EDITORIAL E ESTRATÉGIA DE MARCA — JESSICA NALIN — VERSÃO 1.3',
+    version: '1.3',
+    slug: 'dna-editorial-estrategia-marca-jessica-nalin-v1-3',
+    status: 'aguardando_importacao_p2',
+    description:
+      'Referência oficial de DNA editorial registrada para a P2. O texto original será importado integralmente.',
+  },
+];
 
 export function createDemoSeedData(): MarketingDatabase {
-  const now = '2026-11-20T18:00:00.000Z';
+  const now = new Date().toISOString();
+  const weekStart = getNextMondayIso();
+  const weekEnd = addDaysIso(weekStart, 6);
+  const weekLabel = `Semana de ${formatPtDateShort(weekStart)} a ${formatPtDateShort(weekEnd)}`;
+  const initialBatchId = `batch-${weekStart}`;
 
   return {
     brandProfile: {
@@ -64,6 +99,20 @@ export function createDemoSeedData(): MarketingDatabase {
       ],
       updatedAt: now,
     },
+    knowledgeDocuments: OFFICIAL_KNOWLEDGE_DOCUMENTS.map((doc) => ({ ...doc })),
+    batches: [
+      {
+        id: initialBatchId,
+        weekLabel,
+        weekStartDate: weekStart,
+        weekEndDate: weekEnd,
+        focusTheme: 'Rotina, limites claros e regulação emocional',
+        status: 'ativo',
+        createdBy: 'Jessica Nalin',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
     mediaLibrary: [
       {
         id: 'media-logo-jn',
@@ -71,8 +120,11 @@ export function createDemoSeedData(): MarketingDatabase {
         category: 'logo_marca',
         authenticity: 'logo_oficial',
         url: '/brand/jn-monogram.jpg',
+        storageProvider: 'local',
         mimeType: 'image/jpeg',
         notes: 'Aplicado no selo superior das artes do feed e Stories.',
+        linkedBatchIds: [initialBatchId],
+        linkedPostIds: [],
         createdAt: now,
       },
       {
@@ -81,8 +133,11 @@ export function createDemoSeedData(): MarketingDatabase {
         category: 'logo_marca',
         authenticity: 'logo_oficial',
         url: '/brand/jessy-logo.jpg',
+        storageProvider: 'local',
         mimeType: 'image/jpeg',
         notes: 'Assinatura oficial da marca.',
+        linkedBatchIds: [initialBatchId],
+        linkedPostIds: [],
         createdAt: now,
       },
       {
@@ -91,8 +146,11 @@ export function createDemoSeedData(): MarketingDatabase {
         category: 'material_existente',
         authenticity: 'logo_oficial',
         url: '/brand/metodo-alma.jpg',
+        storageProvider: 'local',
         mimeType: 'image/jpeg',
         notes: 'Material oficial do Método ALMA.',
+        linkedBatchIds: [initialBatchId],
+        linkedPostIds: ['post-semana-05'],
         createdAt: now,
       },
       {
@@ -101,8 +159,11 @@ export function createDemoSeedData(): MarketingDatabase {
         category: 'material_existente',
         authenticity: 'ilustracao_demo',
         url: '/media/family-connection.jpg',
+        storageProvider: 'local',
         mimeType: 'image/jpeg',
         notes: 'Imagem ilustrativa de demonstração. Substitua por fotos reais quando desejar.',
+        linkedBatchIds: [initialBatchId],
+        linkedPostIds: ['post-semana-01'],
         createdAt: now,
       },
       {
@@ -111,8 +172,11 @@ export function createDemoSeedData(): MarketingDatabase {
         category: 'material_existente',
         authenticity: 'ilustracao_demo',
         url: '/media/parents-reading.jpg',
+        storageProvider: 'local',
         mimeType: 'image/jpeg',
         notes: 'Imagem ilustrativa de demonstração.',
+        linkedBatchIds: [initialBatchId],
+        linkedPostIds: ['post-semana-06'],
         createdAt: now,
       },
       {
@@ -121,8 +185,11 @@ export function createDemoSeedData(): MarketingDatabase {
         category: 'material_existente',
         authenticity: 'ilustracao_demo',
         url: '/media/calm-journal.jpg',
+        storageProvider: 'local',
         mimeType: 'image/jpeg',
         notes: 'Fundo neutro para cards tipográficos e Stories.',
+        linkedBatchIds: [initialBatchId],
+        linkedPostIds: ['post-semana-03', 'post-semana-07'],
         createdAt: now,
       },
       {
@@ -131,8 +198,11 @@ export function createDemoSeedData(): MarketingDatabase {
         category: 'material_existente',
         authenticity: 'ilustracao_demo',
         url: '/brand/jessica-portrait.jpg',
+        storageProvider: 'local',
         mimeType: 'image/jpeg',
         notes: 'Envie suas fotos pessoais e profissionais reais na Biblioteca de Mídia para priorizar retratos autênticos nos posts de autoridade.',
+        linkedBatchIds: [],
+        linkedPostIds: [],
         createdAt: now,
       },
     ],
@@ -140,7 +210,8 @@ export function createDemoSeedData(): MarketingDatabase {
     posts: [
       {
         id: 'post-semana-01',
-        weekLabel: 'Semana de 23/11 a 29/11',
+        batchId: initialBatchId,
+        weekLabel,
         dayOfWeek: 'Segunda-feira',
         title: 'Por que repetir a mesma ordem cinco vezes gera desgaste — e como comunicar limites com clareza',
         category: 'educativo',
@@ -164,7 +235,7 @@ export function createDemoSeedData(): MarketingDatabase {
           '#metodoalma',
         ],
         cta: 'Salve para consultar na rotina e conte nos comentários qual combinado hoje pede mais energia na sua casa.',
-        recommendedDate: '2026-11-23',
+        recommendedDate: addDaysIso(weekStart, 0),
         recommendedTime: '19:00',
         status: 'aguardando_aprovacao',
         publishingState: 'bloqueado_sem_integracao',
@@ -224,7 +295,8 @@ export function createDemoSeedData(): MarketingDatabase {
       },
       {
         id: 'post-semana-02',
-        weekLabel: 'Semana de 23/11 a 29/11',
+        batchId: initialBatchId,
+        weekLabel,
         dayOfWeek: 'Terça-feira',
         title: 'Crises de frustração na infância: o papel da corregulação antes da correção',
         category: 'autoridade',
@@ -248,7 +320,7 @@ export function createDemoSeedData(): MarketingDatabase {
           '#mentoriafamiliar',
         ],
         cta: 'Quer entender se a Mentoria Familiar faz sentido para o momento da sua casa? Envie uma mensagem no Direct.',
-        recommendedDate: '2026-11-24',
+        recommendedDate: addDaysIso(weekStart, 1),
         recommendedTime: '18:30',
         status: 'aguardando_aprovacao',
         publishingState: 'bloqueado_sem_integracao',
@@ -337,7 +409,8 @@ export function createDemoSeedData(): MarketingDatabase {
       },
       {
         id: 'post-semana-03',
-        weekLabel: 'Semana de 23/11 a 29/11',
+        batchId: initialBatchId,
+        weekLabel,
         dayOfWeek: 'Quarta-feira',
         title: 'Sequência informativa nos Stories: 3 sinais de cansaço disfarçado de teimosia',
         category: 'educativo',
@@ -355,7 +428,7 @@ export function createDemoSeedData(): MarketingDatabase {
           'Sequência visual de 3 telas educativas prontas para publicação sequencial (sem adesivos interativos), ajudando pais a diferenciar cansaço de desafio intencional no fim da tarde.',
         hashtags: ['#rotinainfantil', '#educacaoparental', '#desenvolvimentoinfantil'],
         cta: 'Observe o horário de maior cansaço dos seus filhos hoje e ajuste a transição antes da disputa.',
-        recommendedDate: '2026-11-25',
+        recommendedDate: addDaysIso(weekStart, 2),
         recommendedTime: '15:30',
         status: 'aprovado',
         approvedAt: '2026-11-20T18:30:00.000Z',
@@ -407,7 +480,8 @@ export function createDemoSeedData(): MarketingDatabase {
       },
       {
         id: 'post-semana-04',
-        weekLabel: 'Semana de 23/11 a 29/11',
+        batchId: initialBatchId,
+        weekLabel,
         dayOfWeek: 'Quinta-feira',
         title: 'Escuta ativa nos Stories: qual rotina hoje pede mais equilíbrio na sua família?',
         category: 'engajamento',
@@ -428,7 +502,7 @@ export function createDemoSeedData(): MarketingDatabase {
           'Sequência interativa de 2 Stories que requer inserção manual de enquete e caixinha de perguntas dentro do aplicativo do Instagram para mapear dúvidas reais da audiência.',
         hashtags: ['#rotinafamiliar', '#educacaoparental', '#metodoalma'],
         cta: 'Participe da enquete e envie sua dúvida na caixinha para receber resposta nos próximos Stories.',
-        recommendedDate: '2026-11-26',
+        recommendedDate: addDaysIso(weekStart, 3),
         recommendedTime: '10:30',
         status: 'aguardando_aprovacao',
         publishingState: 'bloqueado_sem_integracao',
@@ -459,7 +533,8 @@ export function createDemoSeedData(): MarketingDatabase {
       },
       {
         id: 'post-semana-05',
-        weekLabel: 'Semana de 23/11 a 29/11',
+        batchId: initialBatchId,
+        weekLabel,
         dayOfWeek: 'Sexta-feira',
         title: 'Como funciona a Mentoria Familiar pelo Método ALMA na prática',
         category: 'comercial',
@@ -483,7 +558,7 @@ export function createDemoSeedData(): MarketingDatabase {
           '#relacionamentosfamiliares',
         ],
         cta: 'Envie uma mensagem no Direct para receber informações sobre a Mentoria Familiar e consultar horários disponíveis.',
-        recommendedDate: '2026-11-27',
+        recommendedDate: addDaysIso(weekStart, 4),
         recommendedTime: '19:00',
         status: 'aguardando_aprovacao',
         publishingState: 'bloqueado_sem_integracao',
@@ -532,7 +607,8 @@ export function createDemoSeedData(): MarketingDatabase {
       },
       {
         id: 'post-semana-06',
-        weekLabel: 'Semana de 23/11 a 29/11',
+        batchId: initialBatchId,
+        weekLabel,
         dayOfWeek: 'Sábado',
         title: 'Autonomia não é deixar a criança sozinha: como delegar pequenas responsabilidades por faixa etária',
         category: 'autoridade',
@@ -555,7 +631,7 @@ export function createDemoSeedData(): MarketingDatabase {
           '#educacaoparental',
         ],
         cta: 'Compartilhe com seu cônjuge ou rede de apoio e salve para aplicar aos poucos nesta semana.',
-        recommendedDate: '2026-11-28',
+        recommendedDate: addDaysIso(weekStart, 5),
         recommendedTime: '09:30',
         status: 'aguardando_aprovacao',
         publishingState: 'bloqueado_sem_integracao',
@@ -597,7 +673,8 @@ export function createDemoSeedData(): MarketingDatabase {
       },
       {
         id: 'post-semana-07',
-        weekLabel: 'Semana de 23/11 a 29/11',
+        batchId: initialBatchId,
+        weekLabel,
         dayOfWeek: 'Domingo',
         title: 'Reparação emocional na família: o que os filhos aprendem quando os pais pedem desculpas',
         category: 'emocional',
@@ -621,7 +698,7 @@ export function createDemoSeedData(): MarketingDatabase {
           '#educacaoparental',
         ],
         cta: 'Salve esta reflexão para reler nos dias mais cansativos e compartilhe com quem caminha com você na criação dos filhos.',
-        recommendedDate: '2026-11-29',
+        recommendedDate: addDaysIso(weekStart, 6),
         recommendedTime: '18:00',
         status: 'aguardando_aprovacao',
         publishingState: 'bloqueado_sem_integracao',
@@ -669,7 +746,7 @@ export function createDemoSeedData(): MarketingDatabase {
         captacao_clientes: 2,
       },
       lastPreparedAt: now,
-      nextPreparationAt: '2026-11-27T18:00:00.000Z',
+      nextPreparationAt: `${addDaysIso(weekStart, 4)}T18:00:00.000Z`,
       updatedAt: now,
     },
     analyticsDemo: {

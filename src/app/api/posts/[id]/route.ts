@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/auth/session';
 import {
   deletePost,
   getPostById,
@@ -12,6 +13,9 @@ export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireApiAuth();
+  if (!auth.ok) return auth.response;
+
   try {
     const { id } = await context.params;
     const post = await getPostById(id);
@@ -32,6 +36,9 @@ export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireApiAuth({ roles: ['owner', 'editor'] });
+  if (!auth.ok) return auth.response;
+
   try {
     const { id } = await context.params;
     const body = await request.json();
@@ -40,7 +47,8 @@ export async function PATCH(
       const updatedReels = await updateReelsProductionById(
         id,
         body.reelsProduction,
-        Boolean(body.sendReelsToApproval)
+        Boolean(body.sendReelsToApproval),
+        { name: auth.user.name, email: auth.user.email }
       );
       if (!updatedReels) {
         return NextResponse.json({ error: 'Publicação não encontrada.' }, { status: 404 });
@@ -106,7 +114,11 @@ export async function PATCH(
         ...(Array.isArray(body.reelsScript) ? { reelsScript: body.reelsScript } : {}),
         ...(body.returnToApproval === true ? { status: 'aguardando_aprovacao' } : {}),
       },
-      body.auditNote
+      {
+        note: typeof body.auditNote === 'string' ? body.auditNote : undefined,
+        actor: auth.user.name,
+        actorEmail: auth.user.email,
+      }
     );
 
     if (!updated) {
@@ -130,13 +142,22 @@ export async function DELETE(
   _request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireApiAuth({ roles: ['owner', 'editor'] });
+  if (!auth.ok) return auth.response;
+
   try {
     const { id } = await context.params;
-    const removed = await deletePost(id);
+    const removed = await deletePost(id, {
+      name: auth.user.name,
+      email: auth.user.email,
+    });
     if (!removed) {
       return NextResponse.json({ error: 'Publicação não encontrada.' }, { status: 404 });
     }
-    return NextResponse.json({ deleted: true, message: 'Publicação removida.' });
+    return NextResponse.json({
+      deleted: true,
+      message: 'Publicação removida com sucesso (histórico de auditoria preservado).',
+    });
   } catch (error) {
     console.error('Erro ao remover publicação:', error);
     return NextResponse.json(

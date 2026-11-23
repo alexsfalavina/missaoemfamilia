@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/auth/session';
 import {
   getBrandProfile,
   resetBrandProfileToDefault,
@@ -6,6 +7,9 @@ import {
 } from '@/lib/store/repository';
 
 export async function GET() {
+  const auth = await requireApiAuth();
+  if (!auth.ok) return auth.response;
+
   try {
     const profile = await getBrandProfile();
     return NextResponse.json({ brand: profile });
@@ -19,6 +23,9 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
+  const auth = await requireApiAuth({ roles: ['owner', 'editor'] });
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
 
@@ -82,6 +89,9 @@ export async function PUT(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireApiAuth({ roles: ['owner', 'editor'] });
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json().catch(() => ({}));
     if (body?.action === 'reset') {

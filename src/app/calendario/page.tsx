@@ -11,7 +11,7 @@ import {
   Save,
   X,
 } from 'lucide-react';
-import type { ContentPost } from '@/types/marketing';
+import type { ContentPost, WeeklyBatch } from '@/types/marketing';
 import {
   CATEGORY_META,
   FORMAT_META,
@@ -29,9 +29,13 @@ import {
   LoadingCards,
   ToastMessage,
 } from '@/components/FeedbackStates';
+import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 
 export default function EditorialCalendarPage() {
+  const { canEdit } = useCurrentUser();
   const [posts, setPosts] = useState<ContentPost[]>([]);
+  const [batches, setBatches] = useState<WeeklyBatch[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showPendingToo, setShowPendingToo] = useState(true);
@@ -48,20 +52,30 @@ export default function EditorialCalendarPage() {
     setTimeout(() => setToast(null), 3600);
   };
 
-  const loadPosts = useCallback(async () => {
+  const loadPosts = useCallback(async (batchIdOverride?: string) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/posts', { cache: 'no-store' });
+      const targetBatch = batchIdOverride ?? selectedBatchId;
+      const url = targetBatch
+        ? `/api/posts?batchId=${encodeURIComponent(targetBatch)}`
+        : '/api/posts';
+      const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error('Não foi possível carregar o calendário editorial.');
       const data = await res.json();
       setPosts(data.posts || []);
+      if (Array.isArray(data.batches)) {
+        setBatches(data.batches);
+        if (!targetBatch && data.activeBatchId) {
+          setSelectedBatchId(data.activeBatchId);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar o calendário.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedBatchId]);
 
   useEffect(() => {
     loadPosts();
@@ -148,14 +162,31 @@ export default function EditorialCalendarPage() {
 
       {/* Barra de Controle */}
       <div className="approval-toolbar">
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+          {batches.length > 0 && (
+            <select
+              id="calendar-batch-selector"
+              aria-label="Selecionar lote semanal"
+              className="select"
+              style={{ maxWidth: 290, padding: '6px 10px', fontSize: '0.82rem' }}
+              value={selectedBatchId}
+              onChange={(e) => setSelectedBatchId(e.target.value)}
+            >
+              {batches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.status === 'ativo' ? '● Ativo: ' : 'Arquivado: '}
+                  {b.weekLabel}
+                </option>
+              ))}
+            </select>
+          )}
           <span className="badge badge-green">
             <CheckCircle2 size={13} />
-            {approvedCount} aprovados e agendados localmente
+            {approvedCount} aprovados e agendados
           </span>
           <span className="badge badge-neutral">
             <Lock size={13} />
-            Publicação automática no Instagram desativada (Etapa 1)
+            Publicação automática desativada (P1)
           </span>
         </div>
 
@@ -171,7 +202,7 @@ export default function EditorialCalendarPage() {
         </label>
       </div>
 
-      {error && <ErrorBanner message={error} onRetry={loadPosts} />}
+      {error && <ErrorBanner message={error} onRetry={() => loadPosts()} />}
       {loading && <LoadingCards count={4} />}
 
       {!loading && !error && visiblePosts.length === 0 && (
@@ -350,52 +381,61 @@ export default function EditorialCalendarPage() {
                     Ajustar data e horário recomendados
                   </div>
 
-                  <div className="form-grid">
-                    <div className="form-group">
-                      <label className="form-label" htmlFor="cal-edit-date">
-                        Data
-                      </label>
-                      <input
-                        id="cal-edit-date"
-                        type="date"
-                        className="input"
-                        value={editDate}
-                        onChange={(e) => setEditDate(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label" htmlFor="cal-edit-time">
-                        Horário
-                      </label>
-                      <input
-                        id="cal-edit-time"
-                        type="time"
-                        className="input"
-                        value={editTime}
-                        onChange={(e) => setEditTime(e.target.value)}
-                        required
-                      />
-                    </div>
-                  </div>
+                  {canEdit ? (
+                    <>
+                      <div className="form-grid">
+                        <div className="form-group">
+                          <label className="form-label" htmlFor="cal-edit-date">
+                            Data
+                          </label>
+                          <input
+                            id="cal-edit-date"
+                            type="date"
+                            className="input"
+                            value={editDate}
+                            onChange={(e) => setEditDate(e.target.value)}
+                            required
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label" htmlFor="cal-edit-time">
+                            Horário
+                          </label>
+                          <input
+                            id="cal-edit-time"
+                            type="time"
+                            className="input"
+                            value={editTime}
+                            onChange={(e) => setEditTime(e.target.value)}
+                            required
+                          />
+                        </div>
+                      </div>
 
-                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                    <button
-                      type="submit"
-                      className="btn btn-sm btn-primary"
-                      disabled={savingSchedule}
-                    >
-                      <Save size={14} />
-                      {savingSchedule ? 'Salvando...' : 'Salvar horário'}
-                    </button>
-                    <Link
-                      href={`/conteudo?edit=${selectedPost.id}`}
-                      className="btn btn-sm btn-secondary"
-                    >
-                      <Edit3 size={14} />
-                      Editar conteúdo
-                    </Link>
-                  </div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                        <button
+                          type="submit"
+                          className="btn btn-sm btn-primary"
+                          disabled={savingSchedule}
+                        >
+                          <Save size={14} />
+                          {savingSchedule ? 'Salvando...' : 'Salvar horário'}
+                        </button>
+                        <Link
+                          href={`/conteudo?edit=${selectedPost.id}`}
+                          className="btn btn-sm btn-secondary"
+                        >
+                          <Edit3 size={14} />
+                          Editar conteúdo
+                        </Link>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
+                      Agendamento sugerido: <strong>{formatPtDate(selectedPost.recommendedDate)}</strong> às{' '}
+                      <strong>{selectedPost.recommendedTime}</strong> (modo somente leitura).
+                    </div>
+                  )}
                 </form>
 
                 <div className="caption-box">{selectedPost.caption}</div>

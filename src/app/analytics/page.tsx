@@ -30,6 +30,7 @@ import {
   LoadingCards,
   ToastMessage,
 } from '@/components/FeedbackStates';
+import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 
 interface AnalyticsPayload {
   report: AnalyticsReport;
@@ -45,6 +46,7 @@ interface AnalyticsPayload {
 }
 
 export default function AnalyticsPage() {
+  const { canManageLeads } = useCurrentUser();
   const [data, setData] = useState<AnalyticsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -337,27 +339,35 @@ export default function AnalyticsPage() {
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <select
-                          className="select"
-                          style={{ width: 165, padding: '6px 10px', fontSize: '0.78rem' }}
-                          value={lead.stage}
-                          onChange={(e) => handleStageChange(lead.id, e.target.value as LeadStage)}
-                          aria-label={`Estágio de ${lead.contactName}`}
-                        >
-                          {(Object.keys(LEAD_STAGE_META) as LeadStage[]).map((st) => (
-                            <option key={st} value={st}>
-                              {LEAD_STAGE_META[st].label}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-ghost"
-                          onClick={() => handleDeleteLead(lead.id)}
-                          aria-label={`Remover ${lead.contactName}`}
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        {canManageLeads ? (
+                          <>
+                            <select
+                              className="select"
+                              style={{ width: 165, padding: '6px 10px', fontSize: '0.78rem' }}
+                              value={lead.stage}
+                              onChange={(e) => handleStageChange(lead.id, e.target.value as LeadStage)}
+                              aria-label={`Estágio de ${lead.contactName}`}
+                            >
+                              {(Object.keys(LEAD_STAGE_META) as LeadStage[]).map((st) => (
+                                <option key={st} value={st}>
+                                  {LEAD_STAGE_META[st].label}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-ghost"
+                              onClick={() => handleDeleteLead(lead.id)}
+                              aria-label={`Remover ${lead.contactName}`}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </>
+                        ) : (
+                          <span className="badge badge-neutral">
+                            {LEAD_STAGE_META[lead.stage].label}
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
@@ -367,6 +377,7 @@ export default function AnalyticsPage() {
           </div>
 
           {/* Formulário: Registrar Interessado Real */}
+          {canManageLeads && (
           <form
             onSubmit={handleAddLead}
             className="card card-compact"
@@ -481,6 +492,7 @@ export default function AnalyticsPage() {
               </button>
             </div>
           </form>
+          )}
         </div>
 
         {/* Leads Reais por Publicação Individual */}

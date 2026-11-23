@@ -21,8 +21,10 @@ import {
   LoadingCards,
   ToastMessage,
 } from '@/components/FeedbackStates';
+import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 
 export default function AutomationPage() {
+  const { canEdit, canResetDemo } = useCurrentUser();
   const [settings, setSettings] = useState<AutomationSettings | null>(null);
   const [status, setStatus] = useState<IntegrationStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -84,7 +86,7 @@ export default function AutomationPage() {
       const res = await fetch('/api/automation', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'prepare_next_week', weekStartDate: '2026-11-30' }),
+        body: JSON.stringify({ action: 'prepare_next_week' }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Falha ao preparar lote.');
@@ -157,25 +159,30 @@ export default function AutomationPage() {
           </p>
         </div>
         <div className="page-actions">
-          <button
-            type="button"
-            id="automation-prepare-week-btn"
-            className="btn btn-primary"
-            onClick={handlePrepareNextWeek}
-            disabled={saving}
-          >
-            <Sparkles size={15} />
-            Preparar próximos 7 dias agora
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={handleResetDemo}
-            disabled={saving}
-          >
-            <RotateCcw size={15} />
-            Restaurar lote inicial
-          </button>
+          {canEdit && (
+            <button
+              type="button"
+              id="automation-prepare-week-btn"
+              className="btn btn-primary"
+              onClick={handlePrepareNextWeek}
+              disabled={saving}
+            >
+              <Sparkles size={15} />
+              Preparar próximos 7 dias agora
+            </button>
+          )}
+          {canResetDemo && (
+            <button
+              type="button"
+              id="automation-reset-demo-btn"
+              className="btn btn-secondary"
+              onClick={handleResetDemo}
+              disabled={saving}
+            >
+              <RotateCcw size={15} />
+              Restaurar lote inicial
+            </button>
+          )}
         </div>
       </div>
 
@@ -367,17 +374,19 @@ export default function AutomationPage() {
             </div>
           </div>
 
-          <div style={{ marginTop: 18 }}>
-            <button
-              type="submit"
-              id="automation-save-btn"
-              className="btn btn-primary"
-              disabled={saving}
-            >
-              <Save size={16} />
-              {saving ? 'Salvando...' : 'Salvar configurações da semana'}
-            </button>
-          </div>
+          {canEdit && (
+            <div style={{ marginTop: 18 }}>
+              <button
+                type="submit"
+                id="automation-save-btn"
+                className="btn btn-primary"
+                disabled={saving}
+              >
+                <Save size={16} />
+                {saving ? 'Salvando...' : 'Salvar configurações da semana'}
+              </button>
+            </div>
+          )}
         </form>
 
         {/* Prontidão Técnica de Integrações */}
@@ -394,22 +403,25 @@ export default function AutomationPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
                 {
-                  title: 'Supabase (PostgreSQL + RLS)',
+                  title: 'Supabase Free (PostgreSQL + RLS + Storage)',
                   status: status.services.supabase.statusLabel,
+                  configured: status.services.supabase.configured,
                   detail: status.services.supabase.detail,
-                  env: 'SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY',
+                  env: 'Credenciais isoladas no servidor (PostgreSQL + Storage 50 MB)',
                 },
                 {
-                  title: 'Google Gemini API',
+                  title: 'Google Gemini API (P2)',
                   status: status.services.gemini.statusLabel,
+                  configured: status.services.gemini.configured,
                   detail: status.services.gemini.detail,
-                  env: 'GEMINI_API_KEY, GEMINI_MODEL',
+                  env: 'Chave de IA isolada exclusivamente no backend (ativação na P2)',
                 },
                 {
-                  title: 'Instagram Graph API (Meta)',
-                  status: status.services.instagram.statusLabel,
-                  detail: status.services.instagram.detail,
-                  env: 'INSTAGRAM_USERNAME, INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_BUSINESS_ACCOUNT_ID',
+                  title: 'Metricool — Publicação & Métricas Futuras (P4)',
+                  status: status.services.metricool.statusLabel,
+                  configured: status.services.metricool.configured,
+                  detail: status.services.metricool.detail,
+                  env: 'Integração futura exclusivamente no backend (desativado na P1)',
                 },
               ].map((svc) => (
                 <div
@@ -433,7 +445,9 @@ export default function AutomationPage() {
                     }}
                   >
                     <strong style={{ fontSize: '0.9rem' }}>{svc.title}</strong>
-                    <span className="badge badge-gold">{svc.status}</span>
+                    <span className={`badge ${svc.configured ? 'badge-green' : 'badge-gold'}`}>
+                      {svc.status}
+                    </span>
                   </div>
                   <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                     {svc.detail}
@@ -456,6 +470,53 @@ export default function AutomationPage() {
             </div>
           </section>
 
+          <section className="card card-compact">
+            <div className="card-header" style={{ marginBottom: 10 }}>
+              <div>
+                <h2 className="card-title" style={{ fontSize: '0.95rem' }}>
+                  Base de Conhecimento Oficial Registrada (P2)
+                </h2>
+                <p className="card-subtitle">
+                  Fontes oficiais preservadas por versão — conteúdo original será importado na P2
+                  sem substituições
+                </p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(status.knowledgeDocuments ?? []).map((doc) => (
+                <div
+                  key={doc.id}
+                  style={{
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 10,
+                    padding: '10px 12px',
+                    background: 'var(--bg-subtle)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 8,
+                      marginBottom: 3,
+                    }}
+                  >
+                    <strong style={{ fontSize: '0.8rem', color: 'var(--purple-900)' }}>
+                      {doc.title}
+                    </strong>
+                    <span className="badge badge-purple" style={{ fontSize: '0.67rem' }}>
+                      v{doc.version}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                    Status: Aguardando importação integral na P2
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
           <section className="card card-compact" style={{ background: 'var(--purple-50)' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <Sparkles
@@ -464,10 +525,11 @@ export default function AutomationPage() {
                 style={{ flexShrink: 0, marginTop: 2 }}
               />
               <div style={{ fontSize: '0.82rem', color: 'var(--purple-900)' }}>
-                <strong>Esquema Supabase atualizado:</strong>{' '}
-                <code>src/lib/supabase/schema.sql</code> agora inclui{' '}
-                <code>media_assets</code>, <code>potential_customer_leads</code>, modo de Stories e
-                fluxo de produção de Reels.
+                <strong>Esquema Supabase Free (P1) pronto:</strong>{' '}
+                <code>src/lib/supabase/schema.sql</code> inclui controle de acesso (
+                <code>user_profiles</code> + RLS), lotes versionados (<code>weekly_batches</code>),
+                associações de mídia (<code>media_associations</code>), trilha de auditoria e
+                registro dos 3 documentos oficiais (<code>knowledge_documents</code>).
               </div>
             </div>
           </section>

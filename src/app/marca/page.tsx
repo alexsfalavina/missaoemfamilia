@@ -19,8 +19,10 @@ import {
   LoadingCards,
   ToastMessage,
 } from '@/components/FeedbackStates';
+import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 
 export default function BrandProfilePage() {
+  const { canEdit } = useCurrentUser();
   const [brand, setBrand] = useState<BrandProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -180,26 +182,28 @@ export default function BrandProfilePage() {
             perfil.
           </p>
         </div>
-        <div className="page-actions">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={handleReset}
-            disabled={saving}
-          >
-            <RotateCcw size={15} />
-            Restaurar padrão
-          </button>
-          <button
-            type="submit"
-            id="brand-save-btn"
-            className="btn btn-primary"
-            disabled={saving}
-          >
-            <Save size={16} />
-            {saving ? 'Salvando...' : 'Salvar alterações'}
-          </button>
-        </div>
+        {canEdit && (
+          <div className="page-actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleReset}
+              disabled={saving}
+            >
+              <RotateCcw size={15} />
+              Restaurar padrão
+            </button>
+            <button
+              type="submit"
+              id="brand-save-btn"
+              className="btn btn-primary"
+              disabled={saving}
+            >
+              <Save size={16} />
+              {saving ? 'Salvando...' : 'Salvar alterações'}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="two-col-grid" style={{ alignItems: 'start' }}>

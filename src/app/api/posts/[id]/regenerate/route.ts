@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/auth/session';
 import { regeneratePostById } from '@/lib/store/repository';
 import type { ContentToneProfile } from '@/types/marketing';
 
@@ -8,6 +9,9 @@ export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireApiAuth({ roles: ['owner', 'editor'] });
+  if (!auth.ok) return auth.response;
+
   try {
     const { id } = await context.params;
     const body = await request.json().catch(() => ({}));
@@ -26,6 +30,8 @@ export async function POST(
       requestedTone: body?.requestedTone as ContentToneProfile | undefined,
       visualInstruction:
         typeof body?.visualInstruction === 'string' ? body.visualInstruction : undefined,
+      actor: auth.user.name,
+      actorEmail: auth.user.email,
     });
 
     if (!updated) {

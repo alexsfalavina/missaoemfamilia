@@ -10,24 +10,62 @@ import type {
   ContentToneProfile,
   DashboardMetrics,
   IntegrationStatus,
+  KnowledgeDocumentRef,
   LeadInterestType,
   LeadStage,
   MarketingDatabase,
   MediaAsset,
   PotentialCustomerLead,
   ReelsProductionWorkflow,
+  WeeklyBatch,
 } from '@/types/marketing';
-import { createDemoSeedData } from '@/lib/data/demo-seed';
+import { createDemoSeedData, OFFICIAL_KNOWLEDGE_DOCUMENTS } from '@/lib/data/demo-seed';
 import { getSupabaseServerConfig } from '@/lib/supabase/client';
 import { getGeminiMarketingService, getGeminiServerConfig } from '@/lib/integrations/gemini';
-import { getInstagramServerConfig } from '@/lib/integrations/instagram';
-import { getWeekdayNameFromDate } from '@/lib/constants/labels';
+import { getMetricoolServerConfig } from '@/lib/integrations/metricool';
+import { getAuthProviderMode } from '@/lib/auth/session';
+import {
+  addDaysIso,
+  formatPtDateShort,
+  getNextMondayIso,
+  getWeekdayNameFromDate,
+} from '@/lib/constants/labels';
+import {
+  isSupabaseDemoSeedAllowed,
+  sbAddMediaAsset,
+  sbCreateBatchWithPosts,
+  sbCreateLead,
+  sbCreatePost,
+  sbDeleteLead,
+  sbDeleteMediaAsset,
+  sbDeletePost,
+  sbFindMediaAssetByStoragePath,
+  sbGetAutomationSettings,
+  sbGetBrandProfile,
+  sbGetPostById,
+  sbLinkMedia,
+  sbListBatches,
+  sbListKnowledgeDocuments,
+  sbListLeads,
+  sbListMediaAssets,
+  sbListPosts,
+  sbSaveUpdatedPost,
+  sbUnlinkMedia,
+  sbUpdateAutomationSettings,
+  sbUpdateBrandProfile,
+  sbUpdateLeadStage,
+  sbVerifyStorageObjectExists,
+} from '@/lib/store/supabase-repository';
 
 const DATA_DIR = path.join(process.cwd(), '.data');
 const DB_FILE = path.join(DATA_DIR, 'jessica-marketing-db.json');
 
 let initPromise: Promise<MarketingDatabase> | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
+
+function useSupabase(): boolean {
+  return getSupabaseServerConfig().configured;
+}
 
 function hydrateDatabase(rawDb: Partial<MarketingDatabase>): MarketingDatabase {
   const seed = createDemoSeedData();
@@ -50,9 +88,16 @@ function hydrateDatabase(rawDb: Partial<MarketingDatabase>): MarketingDatabase {
     },
   };
 
+  const batches: WeeklyBatch[] =
+    Array.isArray(rawDb.batches) && rawDb.batches.length > 0
+      ? rawDb.batches
+      : seed.batches;
+  const fallbackBatchId = (batches.find((b) => b.status === 'ativo') ?? batches[0]).id;
+
   const posts: ContentPost[] = Array.isArray(rawDb.posts)
     ? rawDb.posts.map((p) => ({
         ...p,
+        batchId: p.batchId || fallbackBatchId,
         strategicObjective:
           p.strategicObjective ??
           (p.category === 'comercial' || p.category === 'engajamento'
@@ -69,10 +114,19 @@ function hydrateDatabase(rawDb: Partial<MarketingDatabase>): MarketingDatabase {
 
   const mediaLibrary: MediaAsset[] =
     Array.isArray(rawDb.mediaLibrary) && rawDb.mediaLibrary.length > 0
-      ? rawDb.mediaLibrary
+      ? rawDb.mediaLibrary.map((m) => ({
+          ...m,
+          storageProvider: m.storageProvider ?? 'local',
+          linkedBatchIds: Array.isArray(m.linkedBatchIds) ? m.linkedBatchIds : [],
+          linkedPostIds: Array.isArray(m.linkedPostIds) ? m.linkedPostIds : [],
+        }))
       : seed.mediaLibrary;
 
   const leads: PotentialCustomerLead[] = Array.isArray(rawDb.leads) ? rawDb.leads : [];
+  const knowledgeDocuments: KnowledgeDocumentRef[] =
+    Array.isArray(rawDb.knowledgeDocuments) && rawDb.knowledgeDocuments.length > 0
+      ? rawDb.knowledgeDocuments
+      : OFFICIAL_KNOWLEDGE_DOCUMENTS;
 
   const automationSettings: AutomationSettings = {
     ...seed.automationSettings,
@@ -91,9 +145,11 @@ function hydrateDatabase(rawDb: Partial<MarketingDatabase>): MarketingDatabase {
 
   return {
     brandProfile,
+    batches,
     posts,
     mediaLibrary,
     leads,
+    knowledgeDocuments,
     automationSettings,
     analyticsDemo: {
       ...seed.analyticsDemo,
@@ -102,7 +158,7 @@ function hydrateDatabase(rawDb: Partial<MarketingDatabase>): MarketingDatabase {
   };
 }
 
-async function ensureDatabase(): Promise<MarketingDatabase> {
+async function ensureLocalDatabase(): Promise<MarketingDatabase> {
   try {
     const raw = await fs.readFile(DB_FILE, 'utf-8');
     const parsed = JSON.parse(raw) as Partial<MarketingDatabase>;
@@ -114,7 +170,7 @@ async function ensureDatabase(): Promise<MarketingDatabase> {
     if (!initPromise) {
       initPromise = (async () => {
         const seed = createDemoSeedData();
-        await saveDatabase(seed);
+        await saveLocalDatabase(seed);
         return seed;
       })().finally(() => {
         initPromise = null;
@@ -124,7 +180,7 @@ async function ensureDatabase(): Promise<MarketingDatabase> {
   }
 }
 
-async function saveDatabase(db: MarketingDatabase): Promise<void> {
+async function saveLocalDatabase(db: MarketingDatabase): Promise<void> {
   const payload = JSON.stringify(db, null, 2);
   writeQueue = writeQueue.then(async () => {
     await fs.mkdir(DATA_DIR, { recursive: true });
@@ -139,44 +195,60 @@ async function saveDatabase(db: MarketingDatabase): Promise<void> {
 export async function getIntegrationStatus(): Promise<IntegrationStatus> {
   const supabase = getSupabaseServerConfig();
   const gemini = getGeminiServerConfig();
-  const instagram = getInstagramServerConfig();
+  const metricool = getMetricoolServerConfig();
+  const authMode = getAuthProviderMode();
+  const knowledgeDocuments = useSupabase()
+    ? await sbListKnowledgeDocuments()
+    : (await ensureLocalDatabase()).knowledgeDocuments;
 
   return {
     mode: 'demo',
+    persistenceBackend: supabase.configured ? 'supabase' : 'local_json',
+    authMode,
+    publishingProvider: 'metricool',
+    publishingAllowed: false,
     instagramPublishingAllowed: false,
+    knowledgeDocuments,
     services: {
       supabase: {
         configured: supabase.configured,
-        statusLabel: supabase.configured ? 'Configurado (Servidor)' : 'Modo Demonstração Local',
+        statusLabel: supabase.configured
+          ? 'Conectado (Supabase Free / Server-Side)'
+          : 'Fallback Local (.data) — Pronto para Supabase Free',
         detail: supabase.configured
-          ? 'Credenciais server-side detectadas. Esquema SQL pronto para produção.'
-          : 'Persistência local ativa (.data). Configure SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY no servidor para migrar.',
+          ? `PostgreSQL + Storage (${supabase.storageBucket}) ativos no servidor com RLS.`
+          : 'Configure as chaves do projeto Supabase de desenvolvimento no servidor para ativar banco e Storage na nuvem.',
       },
       gemini: {
         configured: gemini.configured,
         statusLabel: gemini.configured
-          ? `Pronto (${gemini.model})`
-          : 'Motor Editorial Local (Sem Custo)',
-        detail: gemini.configured
-          ? 'Chave detectada no servidor. Aguardando autorização explícita para chamadas externas.'
-          : 'Usando inteligência editorial de educação parental em modo local sem consumo de APIs pagas.',
+          ? `Chave pronta (${gemini.model} — P2)`
+          : 'Motor Editorial Local (Sem Custo — P2)',
+        detail:
+          'Na P2 será conectado aos 3 documentos oficiais registrados (Mapa de Conhecimento v1.1, Auditoria v1.1 e DNA Editorial v1.3).',
+      },
+      metricool: {
+        configured: metricool.configured,
+        statusLabel: 'Preparado para P4 (Publicação Desativada na P1)',
+        detail: `Solução escolhida para publicação e métricas futuras de ${metricool.targetHandle} (${metricool.targetProfileUrl}). Sem publicação automática nesta fase.`,
       },
       instagram: {
-        configured: instagram.configured,
-        statusLabel: 'Publicação Desativada (Etapa 1)',
-        detail: `Conta vinculada: ${instagram.handle} (${instagram.profileUrl}). Métricas exibidas são de demonstração e a publicação automática permanece bloqueada até ativação oficial da Meta Graph API.`,
+        configured: false,
+        statusLabel: 'Via Metricool (Sem API direta da Meta na P1)',
+        detail: `Perfil oficial vinculado: ${metricool.targetHandle} (${metricool.targetProfileUrl}). Publicação e métricas futuras serão integradas via Metricool.`,
       },
     },
   };
 }
 
 export async function getBrandProfile(): Promise<BrandProfile> {
-  const db = await ensureDatabase();
-  return db.brandProfile;
+  if (useSupabase()) return sbGetBrandProfile();
+  return (await ensureLocalDatabase()).brandProfile;
 }
 
 export async function updateBrandProfile(partial: Partial<BrandProfile>): Promise<BrandProfile> {
-  const db = await ensureDatabase();
+  if (useSupabase()) return sbUpdateBrandProfile(partial);
+  const db = await ensureLocalDatabase();
   const updated: BrandProfile = {
     ...db.brandProfile,
     ...partial,
@@ -192,26 +264,111 @@ export async function updateBrandProfile(partial: Partial<BrandProfile>): Promis
     updatedAt: new Date().toISOString(),
   };
   db.brandProfile = updated;
-  await saveDatabase(db);
+  await saveLocalDatabase(db);
   return updated;
 }
 
 export async function resetBrandProfileToDefault(): Promise<BrandProfile> {
-  const db = await ensureDatabase();
-  const seed = createDemoSeedData();
-  db.brandProfile = { ...seed.brandProfile, updatedAt: new Date().toISOString() };
-  await saveDatabase(db);
-  return db.brandProfile;
+  const seed = createDemoSeedData().brandProfile;
+  return updateBrandProfile(seed);
+}
+
+// ============================================================================
+// Lotes Semanais Versionados (Histórico Persistente — Nunca sobrescreve!)
+// ============================================================================
+
+export async function listWeeklyBatches(): Promise<WeeklyBatch[]> {
+  if (useSupabase()) return sbListBatches();
+  const db = await ensureLocalDatabase();
+  return [...db.batches].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function getActiveBatch(): Promise<WeeklyBatch | null> {
+  const batches = await listWeeklyBatches();
+  return batches.find((b) => b.status === 'ativo') ?? batches[0] ?? null;
+}
+
+export async function ensureActiveBatch(createdBy = 'Jessica Nalin'): Promise<WeeklyBatch> {
+  const existing = await getActiveBatch();
+  if (existing) return existing;
+
+  const weekStartDate = getNextMondayIso();
+  const { batch } = await createNewWeeklyBatchWithPosts({
+    weekStartDate,
+    createdBy,
+    posts: [],
+  });
+  return batch;
+}
+
+export async function createNewWeeklyBatchWithPosts(input: {
+  weekStartDate: string;
+  focusTheme?: string;
+  createdBy: string;
+  posts: ContentPost[];
+}): Promise<{ batch: WeeklyBatch; posts: ContentPost[] }> {
+  if (useSupabase()) return sbCreateBatchWithPosts(input);
+
+  const db = await ensureLocalDatabase();
+  const now = new Date().toISOString();
+  const weekEndDate = addDaysIso(input.weekStartDate, 6);
+  const weekLabel = `Semana de ${formatPtDateShort(input.weekStartDate)} a ${formatPtDateShort(weekEndDate)}`;
+  const batchId = input.posts[0]?.batchId || `batch-${input.weekStartDate}-${Date.now()}`;
+
+  // Arquiva lotes anteriores preservando 100% do histórico e vínculos com leads!
+  db.batches = db.batches.map((b) =>
+    b.status === 'ativo' ? { ...b, status: 'arquivado', updatedAt: now } : b
+  );
+
+  const newBatch: WeeklyBatch = {
+    id: batchId,
+    weekLabel,
+    weekStartDate: input.weekStartDate,
+    weekEndDate,
+    focusTheme: input.focusTheme?.trim() || undefined,
+    status: 'ativo',
+    createdBy: input.createdBy,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  db.batches.unshift(newBatch);
+
+  const preparedPosts = input.posts.map((p) => ({
+    ...p,
+    batchId,
+    weekLabel,
+    status: 'aguardando_aprovacao' as ApprovalStatus,
+    publishingState: 'bloqueado_sem_integracao' as const,
+  }));
+
+  db.posts.push(...preparedPosts);
+  db.automationSettings.lastPreparedAt = now;
+  await saveLocalDatabase(db);
+
+  return { batch: newBatch, posts: preparedPosts };
 }
 
 export async function listPosts(filters?: {
+  batchId?: string;
   status?: ApprovalStatus | 'todos';
   category?: string;
   format?: string;
+  includeAllBatches?: boolean;
 }): Promise<ContentPost[]> {
-  const db = await ensureDatabase();
-  let items = [...db.posts];
+  if (useSupabase()) return sbListPosts(filters);
 
+  const db = await ensureLocalDatabase();
+  let targetBatchId = filters?.batchId;
+  if (!targetBatchId && !filters?.includeAllBatches) {
+    const active = db.batches.find((b) => b.status === 'ativo') ?? db.batches[0];
+    targetBatchId = active?.id;
+  }
+
+  let items = [...db.posts];
+  if (targetBatchId && targetBatchId !== 'todos') {
+    items = items.filter((p) => p.batchId === targetBatchId);
+  }
   if (filters?.status && filters.status !== 'todos') {
     items = items.filter((p) => p.status === filters.status);
   }
@@ -230,54 +387,46 @@ export async function listPosts(filters?: {
 }
 
 export async function getPostById(id: string): Promise<ContentPost | null> {
-  const db = await ensureDatabase();
+  if (useSupabase()) return sbGetPostById(id);
+  const db = await ensureLocalDatabase();
   return db.posts.find((p) => p.id === id) ?? null;
 }
 
 export async function createPost(post: ContentPost): Promise<ContentPost> {
-  const db = await ensureDatabase();
+  if (useSupabase()) return sbCreatePost(post);
+  const db = await ensureLocalDatabase();
+  const active = db.batches.find((b) => b.status === 'ativo') ?? db.batches[0];
   const safePost: ContentPost = {
     ...post,
+    batchId: post.batchId || active.id,
+    weekLabel: post.weekLabel || active.weekLabel,
     status: 'aguardando_aprovacao',
     publishingState: 'bloqueado_sem_integracao',
     dayOfWeek: post.dayOfWeek || getWeekdayNameFromDate(post.recommendedDate),
     updatedAt: new Date().toISOString(),
   };
   db.posts.push(safePost);
-  await saveDatabase(db);
+  await saveLocalDatabase(db);
   return safePost;
-}
-
-export async function replaceWeeklyPosts(newPosts: ContentPost[]): Promise<ContentPost[]> {
-  const db = await ensureDatabase();
-  db.posts = newPosts.map((p) => ({
-    ...p,
-    status: 'aguardando_aprovacao',
-    publishingState: 'bloqueado_sem_integracao',
-  }));
-  db.automationSettings.lastPreparedAt = new Date().toISOString();
-  await saveDatabase(db);
-  return listPosts();
 }
 
 export async function updatePost(
   id: string,
   updates: Partial<ContentPost>,
-  auditNote?: string
+  auditMeta?: { note?: string; actor?: string; actorEmail?: string }
 ): Promise<ContentPost | null> {
-  const db = await ensureDatabase();
-  const idx = db.posts.findIndex((p) => p.id === id);
-  if (idx === -1) return null;
+  const existing = await getPostById(id);
+  if (!existing) return null;
 
-  const existing = db.posts[idx];
   const now = new Date().toISOString();
   const nextDate = updates.recommendedDate ?? existing.recommendedDate;
 
   const auditEntry: ApprovalAuditEntry = {
     id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     action: updates.recommendedDate || updates.recommendedTime ? 'REAGENDAR' : 'EDITAR',
-    actor: 'Jessica Nalin',
-    note: auditNote || 'Conteúdo atualizado na plataforma.',
+    actor: auditMeta?.actor || 'Jessica Nalin',
+    actorEmail: auditMeta?.actorEmail,
+    note: auditMeta?.note || 'Conteúdo atualizado na plataforma.',
     createdAt: now,
   };
 
@@ -285,14 +434,20 @@ export async function updatePost(
     ...existing,
     ...updates,
     id: existing.id,
+    batchId: existing.batchId,
     dayOfWeek: getWeekdayNameFromDate(nextDate),
     publishingState: 'bloqueado_sem_integracao',
     auditLog: [auditEntry, ...(existing.auditLog ?? [])],
     updatedAt: now,
   };
 
+  if (useSupabase()) return sbSaveUpdatedPost(updated, auditEntry);
+
+  const db = await ensureLocalDatabase();
+  const idx = db.posts.findIndex((p) => p.id === id);
+  if (idx === -1) return null;
   db.posts[idx] = updated;
-  await saveDatabase(db);
+  await saveLocalDatabase(db);
   return updated;
 }
 
@@ -301,21 +456,27 @@ export async function regeneratePostById(input: {
   mode: 'completo' | 'outro_tom' | 'outro_visual';
   requestedTone?: ContentToneProfile;
   visualInstruction?: string;
+  actor?: string;
+  actorEmail?: string;
 }): Promise<ContentPost | null> {
-  const db = await ensureDatabase();
-  const idx = db.posts.findIndex((p) => p.id === input.id);
-  if (idx === -1) return null;
+  const existing = await getPostById(input.id);
+  if (!existing) return null;
 
-  const existing = db.posts[idx];
+  const [brand, mediaLibrary, allPosts] = await Promise.all([
+    getBrandProfile(),
+    listMediaAssets(),
+    listPosts({ includeAllBatches: true }),
+  ]);
+
   const gemini = getGeminiMarketingService();
   const regenerated = await gemini.regeneratePost({
     post: existing,
-    brand: db.brandProfile,
+    brand,
     mode: input.mode,
     requestedTone: input.requestedTone,
     visualInstruction: input.visualInstruction,
-    mediaLibrary: db.mediaLibrary,
-    existingTitles: db.posts.filter((p) => p.id !== input.id).map((p) => p.title),
+    mediaLibrary,
+    existingTitles: allPosts.filter((p) => p.id !== input.id).map((p) => p.title),
   });
 
   const actionMap: Record<typeof input.mode, ApprovalAuditEntry['action']> = {
@@ -327,37 +488,44 @@ export async function regeneratePostById(input: {
   const auditEntry: ApprovalAuditEntry = {
     id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     action: actionMap[input.mode],
-    actor: 'Jessica Nalin',
+    actor: input.actor || 'Jessica Nalin',
+    actorEmail: input.actorEmail,
     note:
       input.mode === 'outro_tom'
         ? `Tom ajustado para ${regenerated.toneProfile}.`
         : input.mode === 'outro_visual'
-          ? input.visualInstruction?.trim() || 'Nova proposta visual aplicada mantendo a identidade da marca.'
+          ? input.visualInstruction?.trim() ||
+            'Nova proposta visual aplicada mantendo a identidade da marca.'
           : 'Conteúdo individual regenerado com nova abordagem editorial.',
     createdAt: new Date().toISOString(),
   };
 
   const finalPost: ContentPost = {
     ...regenerated,
+    batchId: existing.batchId,
     publishingState: 'bloqueado_sem_integracao',
     auditLog: [auditEntry, ...(existing.auditLog ?? [])],
   };
 
+  if (useSupabase()) return sbSaveUpdatedPost(finalPost, auditEntry);
+
+  const db = await ensureLocalDatabase();
+  const idx = db.posts.findIndex((p) => p.id === input.id);
+  if (idx === -1) return null;
   db.posts[idx] = finalPost;
-  await saveDatabase(db);
+  await saveLocalDatabase(db);
   return finalPost;
 }
 
 export async function updateReelsProductionById(
   postId: string,
   workflowPatch: Partial<ReelsProductionWorkflow>,
-  sendToApproval = false
+  sendToApproval = false,
+  actor?: { name: string; email?: string }
 ): Promise<ContentPost | null> {
-  const db = await ensureDatabase();
-  const idx = db.posts.findIndex((p) => p.id === postId);
-  if (idx === -1) return null;
+  const existing = await getPostById(postId);
+  if (!existing) return null;
 
-  const existing = db.posts[idx];
   const gemini = getGeminiMarketingService();
   const baseProd =
     existing.reelsProduction ?? gemini.buildReelsProductionFromScript(existing);
@@ -372,25 +540,67 @@ export async function updateReelsProductionById(
     updatedAt: now,
   };
 
+  const auditEntry: ApprovalAuditEntry = {
+    id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    action: 'EDITAR',
+    actor: actor?.name || 'Jessica Nalin',
+    actorEmail: actor?.email,
+    note: sendToApproval
+      ? 'Vídeo do Reel finalizado e enviado para aprovação humana.'
+      : 'Produção do Reel atualizada.',
+    createdAt: now,
+  };
+
   const updated: ContentPost = {
     ...existing,
     reelsProduction: nextProduction,
     status: sendToApproval ? 'aguardando_aprovacao' : existing.status,
     publishingState: 'bloqueado_sem_integracao',
+    auditLog: [auditEntry, ...(existing.auditLog ?? [])],
     updatedAt: now,
   };
 
+  if (useSupabase()) return sbSaveUpdatedPost(updated, auditEntry);
+
+  const db = await ensureLocalDatabase();
+  const idx = db.posts.findIndex((p) => p.id === postId);
+  if (idx === -1) return null;
   db.posts[idx] = updated;
-  await saveDatabase(db);
+  await saveLocalDatabase(db);
   return updated;
 }
 
-export async function deletePost(id: string): Promise<boolean> {
-  const db = await ensureDatabase();
-  const prevLen = db.posts.length;
+export async function deletePost(
+  id: string,
+  actor?: { name: string; email?: string }
+): Promise<boolean> {
+  if (useSupabase()) return sbDeletePost(id, actor);
+  const db = await ensureLocalDatabase();
+  const target = db.posts.find((p) => p.id === id);
+  if (!target) return false;
+
+  const now = new Date().toISOString();
+  const deleteEntry: ApprovalAuditEntry = {
+    id: `aud-del-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    postIdSnapshot: target.id,
+    postTitleSnapshot: target.title,
+    action: 'EXCLUIR',
+    actor: actor?.name || 'Jessica Nalin',
+    actorEmail: actor?.email,
+    note: `Publicação excluída: "${target.title}" (lote ${target.batchId}).`,
+    createdAt: now,
+  };
+  const preservedHistory: ApprovalAuditEntry[] = [
+    deleteEntry,
+    ...(target.auditLog ?? []).map((entry) => ({
+      ...entry,
+      postIdSnapshot: entry.postIdSnapshot || target.id,
+      postTitleSnapshot: entry.postTitleSnapshot || target.title,
+    })),
+  ];
+  db.archivedAuditLogs = [...preservedHistory, ...(db.archivedAuditLogs ?? [])];
   db.posts = db.posts.filter((p) => p.id !== id);
-  if (db.posts.length === prevLen) return false;
-  await saveDatabase(db);
+  await saveLocalDatabase(db);
   return true;
 }
 
@@ -399,28 +609,62 @@ export async function applyApprovalDecision(input: {
   action: 'APROVAR' | 'SOLICITAR_ALTERACOES' | 'REJEITAR';
   feedback?: string;
   actor?: string;
+  actorEmail?: string;
 }): Promise<ContentPost[]> {
-  const db = await ensureDatabase();
   const now = new Date().toISOString();
   const actor = input.actor?.trim() || 'Jessica Nalin';
-  const idSet = new Set(input.postIds);
-
   const nextStatusMap: Record<typeof input.action, ApprovalStatus> = {
     APROVAR: 'aprovado',
     SOLICITAR_ALTERACOES: 'alteracoes_solicitadas',
     REJEITAR: 'rejeitado',
   };
 
+  if (useSupabase()) {
+    const updatedItems: ContentPost[] = [];
+    for (const id of input.postIds) {
+      const post = await sbGetPostById(id);
+      if (!post) continue;
+      const nextStatus = nextStatusMap[input.action];
+      const auditEntry: ApprovalAuditEntry = {
+        id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        postIdSnapshot: post.id,
+        postTitleSnapshot: post.title,
+        action: input.action,
+        actor,
+        actorEmail: input.actorEmail,
+        note: input.feedback?.trim() || undefined,
+        createdAt: now,
+      };
+      const nextPost: ContentPost = {
+        ...post,
+        status: nextStatus,
+        approvalFeedback:
+          input.action === 'APROVAR' ? undefined : input.feedback?.trim() || post.approvalFeedback,
+        approvedAt: input.action === 'APROVAR' ? now : undefined,
+        approvedBy: input.action === 'APROVAR' ? actor : undefined,
+        publishingState: 'bloqueado_sem_integracao',
+        auditLog: [auditEntry, ...(post.auditLog ?? [])],
+        updatedAt: now,
+      };
+      updatedItems.push(await sbSaveUpdatedPost(nextPost, auditEntry));
+    }
+    return updatedItems;
+  }
+
+  const db = await ensureLocalDatabase();
+  const idSet = new Set(input.postIds);
   const updatedItems: ContentPost[] = [];
 
   db.posts = db.posts.map((post) => {
     if (!idSet.has(post.id)) return post;
-
     const nextStatus = nextStatusMap[input.action];
     const auditEntry: ApprovalAuditEntry = {
       id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      postIdSnapshot: post.id,
+      postTitleSnapshot: post.title,
       action: input.action,
       actor,
+      actorEmail: input.actorEmail,
       note: input.feedback?.trim() || undefined,
       createdAt: now,
     };
@@ -440,54 +684,155 @@ export async function applyApprovalDecision(input: {
     return nextPost;
   });
 
-  await saveDatabase(db);
+  await saveLocalDatabase(db);
   return updatedItems;
 }
 
-export async function approveEntireWeeklyBatch(actor = 'Jessica Nalin'): Promise<ContentPost[]> {
-  const db = await ensureDatabase();
-  const eligibleIds = db.posts
+export async function approveEntireWeeklyBatch(input: {
+  batchId?: string;
+  actor?: string;
+  actorEmail?: string;
+}): Promise<ContentPost[]> {
+  const posts = await listPosts({ batchId: input.batchId });
+  const eligibleIds = posts
     .filter((p) => p.status !== 'aprovado' && p.status !== 'rejeitado')
     .map((p) => p.id);
   if (eligibleIds.length === 0) return [];
   return applyApprovalDecision({
     postIds: eligibleIds,
     action: 'APROVAR',
-    actor,
+    actor: input.actor || 'Jessica Nalin',
+    actorEmail: input.actorEmail,
   });
 }
 
 // ============================================================================
-// Biblioteca de Mídia Autêntica
+// Biblioteca de Mídia Autêntica + Associação a Conteúdos e Lotes
 // ============================================================================
 
 export async function listMediaAssets(): Promise<MediaAsset[]> {
-  const db = await ensureDatabase();
+  if (useSupabase()) return sbListMediaAssets();
+  const db = await ensureLocalDatabase();
   return [...db.mediaLibrary].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+export async function findMediaAssetByStoragePath(
+  storagePath: string
+): Promise<MediaAsset | null> {
+  if (useSupabase()) return sbFindMediaAssetByStoragePath(storagePath);
+  const db = await ensureLocalDatabase();
+  return db.mediaLibrary.find((m) => m.storagePath === storagePath) ?? null;
+}
+
+export async function verifyStorageObjectExists(storagePath: string): Promise<boolean> {
+  if (useSupabase()) return sbVerifyStorageObjectExists(storagePath);
+  return false;
+}
+
 export async function addMediaAsset(asset: MediaAsset): Promise<MediaAsset> {
-  const db = await ensureDatabase();
+  if (useSupabase()) return sbAddMediaAsset(asset);
+  const db = await ensureLocalDatabase();
   db.mediaLibrary.unshift(asset);
-  await saveDatabase(db);
+  await saveLocalDatabase(db);
   return asset;
 }
 
+export async function linkMediaToTarget(input: {
+  mediaAssetId: string;
+  batchId?: string;
+  postId?: string;
+}): Promise<{ ok: true; asset: MediaAsset } | { ok: false; status: 400 | 404; error: string }> {
+  if (useSupabase()) {
+    const res = await sbLinkMedia(input);
+    if (!res.ok) return res;
+    const list = await sbListMediaAssets();
+    const asset = list.find((m) => m.id === input.mediaAssetId);
+    if (!asset) return { ok: false, status: 404, error: 'Mídia não encontrada.' };
+    return { ok: true, asset };
+  }
+  const db = await ensureLocalDatabase();
+  const idx = db.mediaLibrary.findIndex((m) => m.id === input.mediaAssetId);
+  if (idx === -1) return { ok: false, status: 404, error: 'Mídia não encontrada.' };
+  if (input.batchId && !db.batches.some((b) => b.id === input.batchId)) {
+    return { ok: false, status: 404, error: 'Lote semanal não encontrado.' };
+  }
+  if (input.postId && !db.posts.some((p) => p.id === input.postId)) {
+    return { ok: false, status: 404, error: 'Publicação não encontrada.' };
+  }
+
+  const asset = db.mediaLibrary[idx];
+  const nextBatches = new Set(asset.linkedBatchIds);
+  const nextPosts = new Set(asset.linkedPostIds);
+  if (input.batchId) nextBatches.add(input.batchId);
+  if (input.postId) nextPosts.add(input.postId);
+
+  db.mediaLibrary[idx] = {
+    ...asset,
+    linkedBatchIds: Array.from(nextBatches),
+    linkedPostIds: Array.from(nextPosts),
+  };
+  await saveLocalDatabase(db);
+  return { ok: true, asset: db.mediaLibrary[idx] };
+}
+
+export async function unlinkMediaFromTarget(input: {
+  mediaAssetId: string;
+  batchId?: string;
+  postId?: string;
+}): Promise<{ ok: true; asset: MediaAsset } | { ok: false; status: 400 | 404; error: string }> {
+  if (useSupabase()) {
+    const res = await sbUnlinkMedia(input);
+    if (!res.ok) return res;
+    const list = await sbListMediaAssets();
+    const asset = list.find((m) => m.id === input.mediaAssetId);
+    if (!asset) return { ok: false, status: 404, error: 'Mídia não encontrada.' };
+    return { ok: true, asset };
+  }
+  const db = await ensureLocalDatabase();
+  const idx = db.mediaLibrary.findIndex((m) => m.id === input.mediaAssetId);
+  if (idx === -1) return { ok: false, status: 404, error: 'Mídia não encontrada.' };
+
+  const asset = db.mediaLibrary[idx];
+  const hadBatch = Boolean(input.batchId && asset.linkedBatchIds.includes(input.batchId));
+  const hadPost = Boolean(input.postId && asset.linkedPostIds.includes(input.postId));
+  if (!hadBatch && !hadPost) {
+    return { ok: false, status: 404, error: 'Associação não encontrada para remover.' };
+  }
+
+  db.mediaLibrary[idx] = {
+    ...asset,
+    linkedBatchIds: input.batchId
+      ? asset.linkedBatchIds.filter((id) => id !== input.batchId)
+      : asset.linkedBatchIds,
+    linkedPostIds: input.postId
+      ? asset.linkedPostIds.filter((id) => id !== input.postId)
+      : asset.linkedPostIds,
+  };
+  await saveLocalDatabase(db);
+  return { ok: true, asset: db.mediaLibrary[idx] };
+}
+
 export async function deleteMediaAsset(id: string): Promise<boolean> {
-  const db = await ensureDatabase();
+  if (useSupabase()) return sbDeleteMediaAsset(id);
+  const db = await ensureLocalDatabase();
   const target = db.mediaLibrary.find((m) => m.id === id);
   if (!target) return false;
+  if (target.storageProvider === 'local' && target.storagePath?.startsWith('uploads/')) {
+    const filePath = path.join(DATA_DIR, 'uploads', path.basename(target.storagePath));
+    await fs.unlink(filePath).catch(() => {});
+  }
   db.mediaLibrary = db.mediaLibrary.filter((m) => m.id !== id);
-  await saveDatabase(db);
+  await saveLocalDatabase(db);
   return true;
 }
 
 // ============================================================================
-// Inteligência Comercial — Leads Reais (Nunca inventa leads ou conversões)
+// Inteligência Comercial — Leads Reais (Preserva referência mesmo em lotes arquivados)
 // ============================================================================
 
 export async function listLeads(): Promise<PotentialCustomerLead[]> {
-  const db = await ensureDatabase();
+  if (useSupabase()) return sbListLeads();
+  const db = await ensureLocalDatabase();
   return [...db.leads].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
 }
 
@@ -499,10 +844,7 @@ export async function createLead(input: {
   channel: PotentialCustomerLead['channel'];
   notes?: string;
 }): Promise<PotentialCustomerLead> {
-  const db = await ensureDatabase();
-  const sourcePost = input.sourcePostId
-    ? db.posts.find((p) => p.id === input.sourcePostId)
-    : undefined;
+  const sourcePost = input.sourcePostId ? await getPostById(input.sourcePostId) : null;
 
   const lead: PotentialCustomerLead = {
     id: `lead-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -521,8 +863,11 @@ export async function createLead(input: {
     recordedAt: new Date().toISOString(),
   };
 
+  if (useSupabase()) return sbCreateLead(lead);
+
+  const db = await ensureLocalDatabase();
   db.leads.unshift(lead);
-  await saveDatabase(db);
+  await saveLocalDatabase(db);
   return lead;
 }
 
@@ -531,7 +876,8 @@ export async function updateLeadStage(
   stage: LeadStage,
   notes?: string
 ): Promise<PotentialCustomerLead | null> {
-  const db = await ensureDatabase();
+  if (useSupabase()) return sbUpdateLeadStage(id, stage, notes);
+  const db = await ensureLocalDatabase();
   const idx = db.leads.findIndex((l) => l.id === id);
   if (idx === -1) return null;
 
@@ -540,38 +886,52 @@ export async function updateLeadStage(
     stage,
     ...(notes !== undefined ? { notes: notes.trim() || undefined } : {}),
   };
-  await saveDatabase(db);
+  await saveLocalDatabase(db);
   return db.leads[idx];
 }
 
 export async function deleteLead(id: string): Promise<boolean> {
-  const db = await ensureDatabase();
+  if (useSupabase()) return sbDeleteLead(id);
+  const db = await ensureLocalDatabase();
   const prev = db.leads.length;
   db.leads = db.leads.filter((l) => l.id !== id);
   if (db.leads.length === prev) return false;
-  await saveDatabase(db);
+  await saveLocalDatabase(db);
   return true;
 }
 
 export async function getDashboardMetrics(): Promise<DashboardMetrics> {
-  const db = await ensureDatabase();
-  const posts = db.posts;
+  const [batches, activePosts, leads, automationSettings] = await Promise.all([
+    listWeeklyBatches(),
+    listPosts(),
+    listLeads(),
+    getAutomationSettings(),
+  ]);
 
-  const awaitingApprovalCount = posts.filter((p) => p.status === 'aguardando_aprovacao').length;
-  const approvedCount = posts.filter((p) => p.status === 'aprovado').length;
-  const changesRequestedCount = posts.filter((p) => p.status === 'alteracoes_solicitadas').length;
-  const rejectedCount = posts.filter((p) => p.status === 'rejeitado').length;
+  const activeBatch = batches.find((b) => b.status === 'ativo') ?? batches[0];
+  const awaitingApprovalCount = activePosts.filter(
+    (p) => p.status === 'aguardando_aprovacao'
+  ).length;
+  const approvedCount = activePosts.filter((p) => p.status === 'aprovado').length;
+  const changesRequestedCount = activePosts.filter(
+    (p) => p.status === 'alteracoes_solicitadas'
+  ).length;
+  const rejectedCount = activePosts.filter((p) => p.status === 'rejeitado').length;
 
   const estimatedReviewMinutes = Math.max(2, awaitingApprovalCount * 2);
-  const realLeadsCount = db.leads.length;
+  const realLeadsCount = leads.length;
+  const demoAnalytics = createDemoSeedData().analyticsDemo;
 
   return {
     dataSource: 'demo',
     periodLabel: 'Últimos 7 dias • Métricas de alcance em demonstração',
+    activeBatchId: activeBatch?.id || '',
+    activeBatchLabel: activeBatch?.weekLabel || 'Semana atual',
+    totalBatchesCount: batches.length,
     totalFollowers: 14820,
     followerGrowthPercent: 4.8,
     followerGrowthCount: 214,
-    weeklyReach: db.analyticsDemo.summary.reach,
+    weeklyReach: demoAnalytics.summary.reach,
     weeklyReachGrowthPercent: 12.4,
     engagementRate: 6.2,
     engagementGrowthPercent: 0.9,
@@ -584,10 +944,10 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
     potentialCustomersSource: realLeadsCount > 0 ? 'real_registrado' : 'sem_registros',
     potentialCustomersGrowthPercent: 0,
     estimatedReviewMinutes,
-    nextSaturdayLabel: `Sábado às ${db.automationSettings.readyTime} (preparado na ${
-      db.automationSettings.preparationDay === 'quinta' ? 'quinta' : 'sexta'
-    } às ${db.automationSettings.preparationTime})`,
-    batchReadyBeforeSaturday: posts.length >= 7,
+    nextSaturdayLabel: `Sábado às ${automationSettings.readyTime} (preparado na ${
+      automationSettings.preparationDay === 'quinta' ? 'quinta' : 'sexta'
+    } às ${automationSettings.preparationTime})`,
+    batchReadyBeforeSaturday: activePosts.length >= 7,
   };
 }
 
@@ -602,24 +962,21 @@ export async function getAnalyticsReport(): Promise<{
     byPost: Array<{ postId: string; postTitle: string; format: string; count: number }>;
   };
 }> {
-  const db = await ensureDatabase();
-  const leads = [...db.leads].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
+  const [brand, allPosts, leads] = await Promise.all([
+    getBrandProfile(),
+    listPosts({ includeAllBatches: true }),
+    listLeads(),
+  ]);
+  const baseDemo = createDemoSeedData().analyticsDemo;
 
   const postMap = new Map<string, { postId: string; postTitle: string; format: string; count: number }>();
-  for (const post of db.posts) {
+  for (const post of allPosts) {
     postMap.set(post.id, {
       postId: post.id,
-      postTitle: post.title,
+      postTitle: `${post.title} (${post.weekLabel})`,
       format: post.format,
       count: 0,
     });
-  }
-
-  for (const lead of leads) {
-    if (lead.sourcePostId && postMap.has(lead.sourcePostId)) {
-      const entry = postMap.get(lead.sourcePostId)!;
-      entry.count += 1;
-    }
   }
 
   const formatLeadCounts: Record<string, number> = {
@@ -628,9 +985,11 @@ export async function getAnalyticsReport(): Promise<{
     stories: 0,
     post_unico: 0,
   };
+
   for (const lead of leads) {
-    if (lead.sourcePostId) {
-      const src = db.posts.find((p) => p.id === lead.sourcePostId);
+    if (lead.sourcePostId && postMap.has(lead.sourcePostId)) {
+      postMap.get(lead.sourcePostId)!.count += 1;
+      const src = allPosts.find((p) => p.id === lead.sourcePostId);
       if (src && formatLeadCounts[src.format] !== undefined) {
         formatLeadCounts[src.format] += 1;
       }
@@ -638,24 +997,24 @@ export async function getAnalyticsReport(): Promise<{
   }
 
   const report: AnalyticsReport = {
-    ...db.analyticsDemo,
-    instagramHandle: db.brandProfile.instagramHandle || '@eujessynalin',
-    instagramUrl: db.brandProfile.instagramUrl || 'https://www.instagram.com/eujessynalin/',
+    ...baseDemo,
+    instagramHandle: brand.instagramHandle || '@eujessynalin',
+    instagramUrl: brand.instagramUrl || 'https://www.instagram.com/eujessynalin/',
     summary: {
-      ...db.analyticsDemo.summary,
+      ...baseDemo.summary,
       leadsGenerated: leads.length,
     },
     funnel: [
-      { stage: 'Alcance semanal (Demo)', value: db.analyticsDemo.summary.reach, rateLabel: '100%' },
-      { stage: 'Visitas ao perfil (Demo)', value: db.analyticsDemo.summary.profileVisits, rateLabel: '7,5% do alcance' },
-      { stage: 'Salvamentos qualificados (Demo)', value: db.analyticsDemo.summary.saves, rateLabel: '4,9% do alcance' },
+      { stage: 'Alcance semanal (Demo)', value: baseDemo.summary.reach, rateLabel: '100%' },
+      { stage: 'Visitas ao perfil (Demo)', value: baseDemo.summary.profileVisits, rateLabel: '7,5% do alcance' },
+      { stage: 'Salvamentos qualificados (Demo)', value: baseDemo.summary.saves, rateLabel: '4,9% do alcance' },
       {
         stage: 'Interessados reais registrados',
         value: leads.length,
         rateLabel: leads.length > 0 ? 'Dados reais da equipe' : 'Nenhum registro ainda',
       },
     ],
-    formatPerformance: db.analyticsDemo.formatPerformance.map((row) => ({
+    formatPerformance: baseDemo.formatPerformance.map((row) => ({
       ...row,
       leads: formatLeadCounts[row.format] ?? 0,
     })),
@@ -675,14 +1034,15 @@ export async function getAnalyticsReport(): Promise<{
 }
 
 export async function getAutomationSettings(): Promise<AutomationSettings> {
-  const db = await ensureDatabase();
-  return db.automationSettings;
+  if (useSupabase()) return sbGetAutomationSettings();
+  return (await ensureLocalDatabase()).automationSettings;
 }
 
 export async function updateAutomationSettings(
   partial: Partial<AutomationSettings>
 ): Promise<AutomationSettings> {
-  const db = await ensureDatabase();
+  if (useSupabase()) return sbUpdateAutomationSettings(partial);
+  const db = await ensureLocalDatabase();
   const updated: AutomationSettings = {
     ...db.automationSettings,
     ...partial,
@@ -700,12 +1060,26 @@ export async function updateAutomationSettings(
     updatedAt: new Date().toISOString(),
   };
   db.automationSettings = updated;
-  await saveDatabase(db);
+  await saveLocalDatabase(db);
   return updated;
 }
 
+export function isDemoResetAllowed(): boolean {
+  if (useSupabase()) {
+    return isSupabaseDemoSeedAllowed();
+  }
+  return process.env['NODE_ENV'] !== 'production';
+}
+
 export async function resetDemoData(): Promise<MarketingDatabase> {
+  if (!isDemoResetAllowed()) {
+    throw new Error(
+      'Restauração de dados demonstrativos bloqueada neste ambiente (desativada em produção e por padrão no Supabase).'
+    );
+  }
   const seed = createDemoSeedData();
-  await saveDatabase(seed);
+  if (!useSupabase()) {
+    await saveLocalDatabase(seed);
+  }
   return seed;
 }

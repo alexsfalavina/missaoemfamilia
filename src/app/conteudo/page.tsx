@@ -10,8 +10,10 @@ import {
   Edit3,
   Film,
   Hand,
+  History,
   Image as ImageIcon,
   Layers,
+  Link2,
   Palette,
   Plus,
   Save,
@@ -20,6 +22,7 @@ import {
   Subtitles,
   Target,
   Trash2,
+  Unlink,
   Upload,
   Wand2,
 } from 'lucide-react';
@@ -35,6 +38,7 @@ import type {
   ReelsSubtitleCue,
   StoryExecutionMode,
   StrategicObjective,
+  WeeklyBatch,
 } from '@/types/marketing';
 import {
   CATEGORY_META,
@@ -47,6 +51,7 @@ import {
   STRATEGIC_OBJECTIVE_META,
   TEMPLATE_META,
   formatPtDate,
+  getNextMondayIso,
 } from '@/lib/constants/labels';
 import { InstagramPostPreview } from '@/components/InstagramPostPreview';
 import {
@@ -55,6 +60,7 @@ import {
   LoadingCards,
   ToastMessage,
 } from '@/components/FeedbackStates';
+import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 
 type ContentTab = 'estrategia' | 'criador' | 'reels' | 'designer' | 'midia';
 
@@ -68,7 +74,82 @@ function buildSrtContent(subtitles: ReelsSubtitleCue[]): string {
     .join('\n');
 }
 
+async function uploadFileViaDirectFlow(params: {
+  file: File;
+  category: MediaAssetCategory;
+  name: string;
+  notes?: string;
+  batchId?: string;
+  postId?: string;
+}): Promise<{ asset: MediaAsset; message: string }> {
+  const prepRes = await fetch('/api/media/upload-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      filename: params.file.name,
+      mimeType: params.file.type || 'application/octet-stream',
+      fileSizeBytes: params.file.size,
+    }),
+  });
+  const prep = await prepRes.json();
+  if (!prepRes.ok) {
+    throw new Error(prep.error || 'Não foi possível preparar o upload do arquivo.');
+  }
+
+  if (prep.mode === 'supabase_signed_url' && prep.signedUrl) {
+    const putRes = await fetch(prep.signedUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': params.file.type || 'application/octet-stream',
+        'x-upsert': 'true',
+      },
+      body: params.file,
+    });
+    if (!putRes.ok) {
+      throw new Error('Falha ao enviar o arquivo diretamente ao Supabase Storage.');
+    }
+
+    const regRes = await fetch('/api/media', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: params.name || params.file.name,
+        category: params.category,
+        url: prep.assetUrl,
+        storagePath: prep.storagePath,
+        mimeType: params.file.type || 'application/octet-stream',
+        fileSizeBytes: params.file.size,
+        notes: params.notes,
+        batchId: params.batchId || undefined,
+        postId: params.postId || undefined,
+      }),
+    });
+    const regData = await regRes.json();
+    if (!regRes.ok) {
+      throw new Error(regData.error || 'Erro ao registrar a mídia enviada.');
+    }
+    return { asset: regData.asset as MediaAsset, message: regData.message };
+  }
+
+  // Fallback local direto via multipart/form-data
+  const fd = new FormData();
+  fd.append('file', params.file);
+  fd.append('category', params.category);
+  fd.append('name', params.name || params.file.name);
+  if (params.notes) fd.append('notes', params.notes);
+  if (params.batchId) fd.append('batchId', params.batchId);
+  if (params.postId) fd.append('postId', params.postId);
+
+  const upRes = await fetch('/api/media', { method: 'POST', body: fd });
+  const upData = await upRes.json();
+  if (!upRes.ok) {
+    throw new Error(upData.error || 'Falha ao enviar arquivo.');
+  }
+  return { asset: upData.asset as MediaAsset, message: upData.message };
+}
+
 function ContentManagementInner() {
+  const { canEdit, canManageMedia } = useCurrentUser();
   const searchParams = useSearchParams();
   const initialEditId = searchParams.get('edit');
   const initialTabParam = searchParams.get('tab') as ContentTab | null;
@@ -82,6 +163,8 @@ function ContentManagementInner() {
         : 'estrategia'
   );
   const [posts, setPosts] = useState<ContentPost[]>([]);
+  const [batches, setBatches] = useState<WeeklyBatch[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState<string>('');
   const [mediaAssets, setMediaAssets] = useState<MediaAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +174,7 @@ function ContentManagementInner() {
 
   // Tab 1: Estratégia Semanal IA
   const [focusTheme, setFocusTheme] = useState('');
-  const [weekStartDate, setWeekStartDate] = useState('2026-11-23');
+  const [weekStartDate, setWeekStartDate] = useState(() => getNextMondayIso());
   const [generatingWeek, setGeneratingWeek] = useState(false);
 
   // Tab 2: Criador / Editor de Conteúdo
@@ -116,7 +199,7 @@ function ContentManagementInner() {
   const [formCta, setFormCta] = useState(
     'Salve este conteúdo ou envie uma mensagem no Direct (@eujessynalin) se desejar conhecer a Mentoria Familiar.'
   );
-  const [formDate, setFormDate] = useState('2026-11-26');
+  const [formDate, setFormDate] = useState(() => getNextMondayIso());
   const [formTime, setFormTime] = useState('19:00');
   const [savingPost, setSavingPost] = useState(false);
 
@@ -135,12 +218,15 @@ function ContentManagementInner() {
   const [activeSlideIdx, setActiveSlideIdx] = useState(0);
   const [savingDesign, setSavingDesign] = useState(false);
 
-  // Tab 5: Biblioteca de Mídia Autêntica
+  // Tab 5: Biblioteca de Mídia Autêntica + Associação a Lotes e Conteúdos
   const [uploadCategory, setUploadCategory] = useState<MediaAssetCategory>('foto_profissional');
   const [uploadName, setUploadName] = useState('');
   const [uploadNotes, setUploadNotes] = useState('');
+  const [uploadLinkBatchId, setUploadLinkBatchId] = useState('');
+  const [uploadLinkPostId, setUploadLinkPostId] = useState('');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadingAsset, setUploadingAsset] = useState(false);
+  const [linkingAssetId, setLinkingAssetId] = useState<string | null>(null);
 
   const showToast = (type: 'success' | 'error' | 'info', text: string) => {
     setToast({ type, text });
@@ -170,12 +256,16 @@ function ContentManagementInner() {
     );
   }, []);
 
-  const loadAll = useCallback(async () => {
+  const loadAll = useCallback(async (batchOverride?: string) => {
     setLoading(true);
     setError(null);
     try {
+      const targetBatch = batchOverride ?? selectedBatchId;
+      const postsUrl = targetBatch
+        ? `/api/posts?batchId=${encodeURIComponent(targetBatch)}`
+        : '/api/posts';
       const [postsRes, mediaRes] = await Promise.all([
-        fetch('/api/posts', { cache: 'no-store' }),
+        fetch(postsUrl, { cache: 'no-store' }),
         fetch('/api/media', { cache: 'no-store' }),
       ]);
       if (!postsRes.ok) throw new Error('Não foi possível carregar os conteúdos.');
@@ -184,6 +274,13 @@ function ContentManagementInner() {
 
       const fetchedPosts: ContentPost[] = postsData.posts || [];
       setPosts(fetchedPosts);
+      if (Array.isArray(postsData.batches)) {
+        setBatches(postsData.batches);
+        if (!targetBatch && postsData.activeBatchId) {
+          setSelectedBatchId(postsData.activeBatchId);
+          setUploadLinkBatchId(postsData.activeBatchId);
+        }
+      }
       setMediaAssets(mediaData.assets || []);
 
       if (fetchedPosts.length > 0) {
@@ -206,7 +303,7 @@ function ContentManagementInner() {
     } finally {
       setLoading(false);
     }
-  }, [designerPostId, initialEditId, initialPostParam, reelsPostId, syncReelsEditorFromPost]);
+  }, [designerPostId, initialEditId, initialPostParam, reelsPostId, selectedBatchId, syncReelsEditorFromPost]);
 
   useEffect(() => {
     loadAll();
@@ -261,7 +358,7 @@ function ContentManagementInner() {
     setFormCta(
       'Salve este conteúdo ou envie uma mensagem no Direct (@eujessynalin) se desejar conhecer a Mentoria Familiar.'
     );
-    setFormDate('2026-11-26');
+    setFormDate(getNextMondayIso());
     setFormTime('19:00');
   };
 
@@ -306,6 +403,15 @@ function ContentManagementInner() {
       if (!res.ok) throw new Error(data.error || 'Erro ao gerar estratégia.');
       const nextPosts: ContentPost[] = data.posts || [];
       setPosts(nextPosts);
+      if (data.batch) {
+        const createdBatch = data.batch as WeeklyBatch;
+        setBatches((prev) => [
+          createdBatch,
+          ...prev.map((b) => (b.status === 'ativo' ? { ...b, status: 'arquivado' as const } : b)),
+        ]);
+        setSelectedBatchId(createdBatch.id);
+        setUploadLinkBatchId(createdBatch.id);
+      }
       if (nextPosts[0]) {
         setDesignerPostId(nextPosts[0].id);
         setDesignerSlides(nextPosts[0].slides);
@@ -337,6 +443,7 @@ function ContentManagementInner() {
       .map((t) => (t.startsWith('#') ? t : `#${t}`));
 
     const payload = {
+      batchId: selectedBatchId || undefined,
       title: formTitle,
       category: formCategory,
       strategicObjective: formObjectiveType,
@@ -406,6 +513,7 @@ function ContentManagementInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: 'generate',
+          batchId: selectedBatchId || undefined,
           topic: formTitle,
           category: formCategory,
           strategicObjective: formObjectiveType,
@@ -434,22 +542,20 @@ function ContentManagementInner() {
     }
   };
 
-  // ---- Produção de Reels (Upload do vídeo gravado por Jessica + Legendas + Cortes + Capa) ----
+  // ---- Produção de Reels (Upload direto do vídeo gravado por Jessica + Legendas + Cortes + Capa) ----
   const handleUploadReelVideo = async (file: File | null) => {
     if (!file || !activeReelPost) return;
     setUploadingReelVideo(true);
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('category', 'video');
-      fd.append('name', `Reel gravado — ${activeReelPost.title.slice(0, 40)}`);
-      fd.append('notes', `Vídeo real gravado por Jessica para o Reel (${activeReelPost.dayOfWeek}).`);
+      const { asset } = await uploadFileViaDirectFlow({
+        file,
+        category: 'video',
+        name: `Reel gravado — ${activeReelPost.title.slice(0, 40)}`,
+        notes: `Vídeo real gravado por Jessica para o Reel (${activeReelPost.dayOfWeek}).`,
+        batchId: activeReelPost.batchId || selectedBatchId || undefined,
+        postId: activeReelPost.id,
+      });
 
-      const upRes = await fetch('/api/media', { method: 'POST', body: fd });
-      const upData = await upRes.json();
-      if (!upRes.ok) throw new Error(upData.error || 'Falha ao enviar vídeo.');
-
-      const asset: MediaAsset = upData.asset;
       setMediaAssets((prev) => [asset, ...prev]);
 
       const patchRes = await fetch(`/api/posts/${activeReelPost.id}`, {
@@ -596,7 +702,7 @@ function ContentManagementInner() {
     }
   };
 
-  // ---- Biblioteca de Mídia Autêntica ----
+  // ---- Biblioteca de Mídia Autêntica (Upload Direto + Associação a Lotes e Conteúdos) ----
   const handleUploadMedia = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!uploadFile) {
@@ -605,27 +711,72 @@ function ContentManagementInner() {
     }
     setUploadingAsset(true);
     try {
-      const fd = new FormData();
-      fd.append('file', uploadFile);
-      fd.append('category', uploadCategory);
-      fd.append('name', uploadName.trim() || uploadFile.name);
-      fd.append('notes', uploadNotes.trim());
+      const { asset, message } = await uploadFileViaDirectFlow({
+        file: uploadFile,
+        category: uploadCategory,
+        name: uploadName.trim() || uploadFile.name,
+        notes: uploadNotes.trim() || undefined,
+        batchId: uploadLinkBatchId || undefined,
+        postId: uploadLinkPostId || undefined,
+      });
 
-      const res = await fetch('/api/media', { method: 'POST', body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao enviar arquivo.');
-
-      setMediaAssets((prev) => [data.asset, ...prev]);
+      setMediaAssets((prev) => [asset, ...prev]);
       setUploadFile(null);
       setUploadName('');
       setUploadNotes('');
+      setUploadLinkPostId('');
       const fileInput = document.getElementById('media-file-input') as HTMLInputElement | null;
       if (fileInput) fileInput.value = '';
-      showToast('success', data.message || 'Arquivo adicionado à Biblioteca de Mídia!');
+      showToast('success', message || 'Arquivo adicionado à Biblioteca de Mídia!');
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Falha no upload.');
     } finally {
       setUploadingAsset(false);
+    }
+  };
+
+  const handleLinkMedia = async (
+    mediaAssetId: string,
+    target: { batchId?: string; postId?: string }
+  ) => {
+    if (!target.batchId && !target.postId) return;
+    setLinkingAssetId(mediaAssetId);
+    try {
+      const res = await fetch('/api/media/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mediaAssetId, ...target }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Não foi possível associar a mídia.');
+      setMediaAssets((prev) => prev.map((m) => (m.id === mediaAssetId ? data.asset : m)));
+      showToast('success', 'Mídia associada com sucesso!');
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Erro ao associar mídia.');
+    } finally {
+      setLinkingAssetId(null);
+    }
+  };
+
+  const handleUnlinkMedia = async (
+    mediaAssetId: string,
+    target: { batchId?: string; postId?: string }
+  ) => {
+    setLinkingAssetId(mediaAssetId);
+    try {
+      const res = await fetch('/api/media/link', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mediaAssetId, ...target }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Não foi possível remover a associação.');
+      setMediaAssets((prev) => prev.map((m) => (m.id === mediaAssetId ? data.asset : m)));
+      showToast('info', 'Associação removida.');
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Erro ao remover associação.');
+    } finally {
+      setLinkingAssetId(null);
     }
   };
 
@@ -719,7 +870,7 @@ function ContentManagementInner() {
         </button>
       </div>
 
-      {error && <ErrorBanner message={error} onRetry={loadAll} />}
+      {error && <ErrorBanner message={error} onRetry={() => loadAll()} />}
       {loading && <LoadingCards count={3} />}
 
       {/* ================================================================
@@ -735,10 +886,10 @@ function ContentManagementInner() {
                 </h2>
                 <p className="card-subtitle">
                   Equilibra Crescimento de audiência, Autoridade profissional e Captação de
-                  clientes — sem clichês motivacionais, sem promessas irreais e sem inventar vagas.
+                  clientes — gerando um novo lote sem apagar o histórico anterior.
                 </p>
               </div>
-              <span className="badge badge-green">Base Técnica Real</span>
+              <span className="badge badge-green">Histórico Preservado</span>
             </div>
 
             <form
@@ -778,15 +929,17 @@ function ContentManagementInner() {
                 />
               </div>
 
-              <button
-                type="submit"
-                id="strategy-generate-btn"
-                className="btn btn-primary"
-                disabled={generatingWeek}
-              >
-                <Sparkles size={16} />
-                {generatingWeek ? 'Gerando lote...' : 'Gerar novo plano semanal'}
-              </button>
+              {canEdit && (
+                <button
+                  type="submit"
+                  id="strategy-generate-btn"
+                  className="btn btn-primary"
+                  disabled={generatingWeek}
+                >
+                  <Sparkles size={16} />
+                  {generatingWeek ? 'Gerando lote...' : 'Gerar novo plano semanal'}
+                </button>
+              )}
             </form>
           </section>
 
@@ -808,15 +961,39 @@ function ContentManagementInner() {
             ))}
           </div>
 
-          {/* Lista das 7 Publicações Estratégicas */}
+          {/* Lista das 7 Publicações Estratégicas + Histórico de Lotes */}
           <section className="card">
             <div className="card-header">
               <div>
-                <h2 className="card-title">Plano Semanal Atual ({posts.length} conteúdos)</h2>
+                <h2 className="card-title">Plano Semanal ({posts.length} conteúdos)</h2>
                 <p className="card-subtitle">
                   Cada item traz público definido, gancho de abertura, valor educativo e CTA natural
                 </p>
               </div>
+              {batches.length > 0 && (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <History size={15} color="var(--purple-700)" />
+                  <select
+                    id="strategy-batch-selector"
+                    aria-label="Selecionar lote semanal do histórico"
+                    className="select"
+                    style={{ maxWidth: 280, padding: '6px 10px', fontSize: '0.8rem' }}
+                    value={selectedBatchId}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      setSelectedBatchId(nextId);
+                      loadAll(nextId);
+                    }}
+                  >
+                    {batches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.status === 'ativo' ? '● Ativo: ' : 'Histórico: '}
+                        {b.weekLabel}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1193,31 +1370,35 @@ function ContentManagementInner() {
                 borderTop: '1px solid var(--border-subtle)',
               }}
             >
-              <button
-                type="submit"
-                id="creator-save-btn"
-                className="btn btn-primary"
-                disabled={savingPost}
-              >
-                <Save size={16} />
-                {savingPost
-                  ? 'Salvando...'
-                  : editingId
-                    ? 'Salvar e enviar para aprovação'
-                    : 'Salvar publicação'}
-              </button>
+              {canEdit && (
+                <>
+                  <button
+                    type="submit"
+                    id="creator-save-btn"
+                    className="btn btn-primary"
+                    disabled={savingPost}
+                  >
+                    <Save size={16} />
+                    {savingPost
+                      ? 'Salvando...'
+                      : editingId
+                        ? 'Salvar e enviar para aprovação'
+                        : 'Salvar publicação'}
+                  </button>
 
-              {!editingId && (
-                <button
-                  type="button"
-                  id="creator-ai-generate-btn"
-                  className="btn btn-secondary"
-                  disabled={savingPost}
-                  onClick={handleQuickAiDraft}
-                >
-                  <Sparkles size={16} />
-                  Gerar rascunho editorial (Demo)
-                </button>
+                  {!editingId && (
+                    <button
+                      type="button"
+                      id="creator-ai-generate-btn"
+                      className="btn btn-secondary"
+                      disabled={savingPost}
+                      onClick={handleQuickAiDraft}
+                    >
+                      <Sparkles size={16} />
+                      Gerar rascunho editorial (Demo)
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </form>
@@ -1387,13 +1568,15 @@ function ContentManagementInner() {
                   O arquivo é armazenado na Biblioteca de Mídia como gravação autêntica e vinculado
                   diretamente a este Reel.
                 </p>
-                <input
-                  id="reel-video-upload-input"
-                  type="file"
-                  accept="video/mp4,video/quicktime,video/webm"
-                  disabled={uploadingReelVideo}
-                  onChange={(e) => handleUploadReelVideo(e.target.files?.[0] ?? null)}
-                />
+                {canManageMedia && (
+                  <input
+                    id="reel-video-upload-input"
+                    type="file"
+                    accept="video/mp4,video/quicktime,video/webm"
+                    disabled={uploadingReelVideo}
+                    onChange={(e) => handleUploadReelVideo(e.target.files?.[0] ?? null)}
+                  />
+                )}
                 {uploadingReelVideo && (
                   <p style={{ margin: '8px 0 0', fontSize: '0.8rem', fontWeight: 700 }}>
                     Enviando vídeo gravado...
@@ -1565,27 +1748,29 @@ function ContentManagementInner() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  disabled={savingReels}
-                  onClick={() => handleSaveReelsWorkflow(false)}
-                >
-                  <Save size={15} />
-                  Salvar rascunho da edição
-                </button>
-                <button
-                  type="button"
-                  id="reels-save-approval-btn"
-                  className="btn btn-approve"
-                  disabled={savingReels}
-                  onClick={() => handleSaveReelsWorkflow(true)}
-                >
-                  <CheckCircle2 size={15} />
-                  Salvar vídeo finalizado para aprovação
-                </button>
-              </div>
+              {canEdit && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={savingReels}
+                    onClick={() => handleSaveReelsWorkflow(false)}
+                  >
+                    <Save size={15} />
+                    Salvar rascunho da edição
+                  </button>
+                  <button
+                    type="button"
+                    id="reels-save-approval-btn"
+                    className="btn btn-approve"
+                    disabled={savingReels}
+                    onClick={() => handleSaveReelsWorkflow(true)}
+                  >
+                    <CheckCircle2 size={15} />
+                    Salvar vídeo finalizado para aprovação
+                  </button>
+                </div>
+              )}
             </section>
           </div>
 
@@ -1636,16 +1821,18 @@ function ContentManagementInner() {
                   autênticas da Biblioteca de Mídia
                 </p>
               </div>
-              <button
-                type="button"
-                id="designer-save-btn"
-                className="btn btn-primary"
-                onClick={handleSaveDesign}
-                disabled={savingDesign || !designerPostId}
-              >
-                <Save size={15} />
-                {savingDesign ? 'Salvando...' : 'Salvar arte'}
-              </button>
+              {canEdit && (
+                <button
+                  type="button"
+                  id="designer-save-btn"
+                  className="btn btn-primary"
+                  onClick={handleSaveDesign}
+                  disabled={savingDesign || !designerPostId}
+                >
+                  <Save size={15} />
+                  {savingDesign ? 'Salvando...' : 'Salvar arte'}
+                </button>
+              )}
             </div>
 
             <div className="form-grid" style={{ marginBottom: 16 }}>
@@ -1944,7 +2131,154 @@ function ContentManagementInner() {
                           {asset.notes}
                         </div>
                       )}
-                      {asset.authenticity === 'autentico_jessica' && (
+
+                      {/* Associações a Lotes e Conteúdos */}
+                      <div
+                        style={{
+                          marginTop: 4,
+                          paddingTop: 6,
+                          borderTop: '1px solid var(--border-subtle)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 5,
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            color: 'var(--purple-800)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          <Link2 size={11} />
+                          Vínculos ({asset.linkedBatchIds.length} lotes •{' '}
+                          {asset.linkedPostIds.length} posts)
+                        </div>
+
+                        {(asset.linkedBatchIds.length > 0 || asset.linkedPostIds.length > 0) && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {asset.linkedBatchIds.map((bId) => {
+                              const batchObj = batches.find((b) => b.id === bId);
+                              return canManageMedia ? (
+                                <button
+                                  key={`b-${bId}`}
+                                  type="button"
+                                  className="badge badge-purple"
+                                  style={{
+                                    fontSize: '0.64rem',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 3,
+                                  }}
+                                  title="Remover vínculo com este lote"
+                                  disabled={linkingAssetId === asset.id}
+                                  onClick={() => handleUnlinkMedia(asset.id, { batchId: bId })}
+                                >
+                                  <span>{batchObj ? batchObj.weekLabel : bId}</span>
+                                  <Unlink size={10} />
+                                </button>
+                              ) : (
+                                <span
+                                  key={`b-${bId}`}
+                                  className="badge badge-purple"
+                                  style={{ fontSize: '0.64rem' }}
+                                >
+                                  {batchObj ? batchObj.weekLabel : bId}
+                                </span>
+                              );
+                            })}
+                            {asset.linkedPostIds.map((pId) => {
+                              const postObj = posts.find((p) => p.id === pId);
+                              return canManageMedia ? (
+                                <button
+                                  key={`p-${pId}`}
+                                  type="button"
+                                  className="badge badge-green"
+                                  style={{
+                                    fontSize: '0.64rem',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 3,
+                                    maxWidth: '100%',
+                                  }}
+                                  title="Remover vínculo com este conteúdo"
+                                  disabled={linkingAssetId === asset.id}
+                                  onClick={() => handleUnlinkMedia(asset.id, { postId: pId })}
+                                >
+                                  <span
+                                    style={{
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                      maxWidth: 135,
+                                    }}
+                                  >
+                                    {postObj ? `${postObj.dayOfWeek}: ${postObj.title}` : pId}
+                                  </span>
+                                  <Unlink size={10} />
+                                </button>
+                              ) : (
+                                <span
+                                  key={`p-${pId}`}
+                                  className="badge badge-green"
+                                  style={{ fontSize: '0.64rem', maxWidth: 155, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                >
+                                  {postObj ? `${postObj.dayOfWeek}: ${postObj.title}` : pId}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {canManageMedia && (
+                        <select
+                          aria-label={`Associar ${asset.name} a um conteúdo ou lote`}
+                          className="select"
+                          style={{ padding: '4px 8px', fontSize: '0.72rem' }}
+                          defaultValue=""
+                          disabled={linkingAssetId === asset.id}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            e.target.value = '';
+                            if (!val) return;
+                            if (val.startsWith('batch:')) {
+                              handleLinkMedia(asset.id, { batchId: val.slice(6) });
+                            } else if (val.startsWith('post:')) {
+                              handleLinkMedia(asset.id, { postId: val.slice(5) });
+                            }
+                          }}
+                        >
+                          <option value="">+ Associar a conteúdo ou lote...</option>
+                          {batches.length > 0 && (
+                            <optgroup label="Lotes semanais">
+                              {batches.map((b) => (
+                                <option key={b.id} value={`batch:${b.id}`}>
+                                  {b.weekLabel}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {posts.length > 0 && (
+                            <optgroup label="Publicações do lote">
+                              {posts.map((p) => (
+                                <option key={p.id} value={`post:${p.id}`}>
+                                  {p.dayOfWeek} — {p.title.slice(0, 42)}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                        )}
+                      </div>
+
+                      {canManageMedia && asset.authenticity === 'autentico_jessica' && (
                         <button
                           type="button"
                           className="btn btn-sm btn-ghost"
@@ -1962,12 +2296,14 @@ function ContentManagementInner() {
             </div>
           </section>
 
+          {canManageMedia && (
           <form onSubmit={handleUploadMedia} className="card">
             <div className="card-header">
               <div>
                 <h2 className="card-title">Enviar Material Real de Jessica</h2>
                 <p className="card-subtitle">
-                  Fotos pessoais, fotos profissionais, vídeos, logos e materiais existentes
+                  Upload direto de fotos e vídeos (até 50 MB) com associação imediata a lotes ou
+                  publicações
                 </p>
               </div>
               <Upload size={18} color="var(--purple-600)" />
@@ -2008,7 +2344,7 @@ function ContentManagementInner() {
 
               <div className="form-group">
                 <label className="form-label" htmlFor="media-file-input">
-                  Arquivo (JPG, PNG, WEBP, MP4, MOV ou WEBM)
+                  Arquivo (JPG, PNG, WEBP, MP4, MOV ou WEBM — até 50 MB)
                 </label>
                 <input
                   id="media-file-input"
@@ -2019,6 +2355,49 @@ function ContentManagementInner() {
                   required
                 />
               </div>
+
+              {batches.length > 0 && (
+                <div className="form-group">
+                  <label className="form-label" htmlFor="media-link-batch">
+                    Associar ao lote semanal (opcional)
+                  </label>
+                  <select
+                    id="media-link-batch"
+                    className="select"
+                    value={uploadLinkBatchId}
+                    onChange={(e) => setUploadLinkBatchId(e.target.value)}
+                  >
+                    <option value="">Sem vínculo com lote</option>
+                    {batches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.status === 'ativo' ? '● Ativo: ' : 'Histórico: '}
+                        {b.weekLabel}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {posts.length > 0 && (
+                <div className="form-group">
+                  <label className="form-label" htmlFor="media-link-post">
+                    Associar a uma publicação específica (opcional)
+                  </label>
+                  <select
+                    id="media-link-post"
+                    className="select"
+                    value={uploadLinkPostId}
+                    onChange={(e) => setUploadLinkPostId(e.target.value)}
+                  >
+                    <option value="">Sem vínculo com conteúdo específico</option>
+                    {posts.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.dayOfWeek} — {p.title.slice(0, 50)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="form-group">
                 <label className="form-label" htmlFor="media-notes-input">
@@ -2045,6 +2424,7 @@ function ContentManagementInner() {
               </button>
             </div>
           </form>
+          )}
         </div>
       )}
 

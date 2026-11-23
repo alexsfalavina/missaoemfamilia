@@ -1,5 +1,15 @@
 export type DataSourceMode = 'demo' | 'live';
 
+export type UserRole = 'owner' | 'editor' | 'viewer';
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  authProvider: 'supabase' | 'local_dev';
+}
+
 export type ContentCategory =
   | 'educativo'
   | 'emocional'
@@ -60,10 +70,36 @@ export interface MediaAsset {
   category: MediaAssetCategory;
   authenticity: MediaAuthenticity;
   url: string;
+  storagePath?: string;
+  storageProvider: 'local' | 'supabase_storage';
   mimeType: string;
   fileSizeBytes?: number;
   notes?: string;
+  linkedBatchIds: string[];
+  linkedPostIds: string[];
   createdAt: string;
+}
+
+export interface WeeklyBatch {
+  id: string;
+  weekLabel: string;
+  weekStartDate: string; // YYYY-MM-DD (Segunda-feira)
+  weekEndDate: string; // YYYY-MM-DD (Domingo)
+  focusTheme?: string;
+  status: 'ativo' | 'arquivado';
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeDocumentRef {
+  id: string;
+  title: string;
+  version: string;
+  slug: string;
+  status: 'aguardando_importacao_p2' | 'ativo';
+  description: string;
+  importedAt?: string;
 }
 
 export interface CarouselSlide {
@@ -110,6 +146,8 @@ export interface ReelsProductionWorkflow {
 
 export interface ApprovalAuditEntry {
   id: string;
+  postIdSnapshot?: string;
+  postTitleSnapshot?: string;
   action:
     | 'APROVAR'
     | 'SOLICITAR_ALTERACOES'
@@ -118,14 +156,17 @@ export interface ApprovalAuditEntry {
     | 'EDITAR'
     | 'REGENERAR'
     | 'ALTERAR_TOM'
-    | 'ALTERAR_VISUAL';
+    | 'ALTERAR_VISUAL'
+    | 'EXCLUIR';
   actor: string;
+  actorEmail?: string;
   note?: string;
   createdAt: string;
 }
 
 export interface ContentPost {
   id: string;
+  batchId: string;
   weekLabel: string;
   dayOfWeek: string;
   title: string;
@@ -150,6 +191,8 @@ export interface ContentPost {
   approvedAt?: string;
   approvedBy?: string;
   publishingState: 'nao_publicado' | 'bloqueado_sem_integracao';
+  externalProvider?: 'metricool' | null;
+  externalPostId?: string | null;
   dataSource: DataSourceMode;
   storyExecutionMode?: StoryExecutionMode;
   storyManualInstructions?: string;
@@ -216,6 +259,9 @@ export interface PotentialCustomerLead {
 export interface DashboardMetrics {
   dataSource: DataSourceMode;
   periodLabel: string;
+  activeBatchId: string;
+  activeBatchLabel: string;
+  totalBatchesCount: number;
   totalFollowers: number;
   followerGrowthPercent: number;
   followerGrowthCount: number;
@@ -291,7 +337,12 @@ export interface AutomationSettings {
 
 export interface IntegrationStatus {
   mode: DataSourceMode;
+  persistenceBackend: 'supabase' | 'local_json';
+  authMode: 'supabase' | 'local_dev';
+  publishingProvider: 'metricool';
+  publishingAllowed: false;
   instagramPublishingAllowed: false;
+  knowledgeDocuments: KnowledgeDocumentRef[];
   services: {
     supabase: {
       configured: boolean;
@@ -299,6 +350,11 @@ export interface IntegrationStatus {
       detail: string;
     };
     gemini: {
+      configured: boolean;
+      statusLabel: string;
+      detail: string;
+    };
+    metricool: {
       configured: boolean;
       statusLabel: string;
       detail: string;
@@ -313,9 +369,12 @@ export interface IntegrationStatus {
 
 export interface MarketingDatabase {
   brandProfile: BrandProfile;
+  batches: WeeklyBatch[];
   posts: ContentPost[];
+  archivedAuditLogs?: ApprovalAuditEntry[];
   mediaLibrary: MediaAsset[];
   leads: PotentialCustomerLead[];
+  knowledgeDocuments: KnowledgeDocumentRef[];
   automationSettings: AutomationSettings;
   analyticsDemo: AnalyticsReport;
 }

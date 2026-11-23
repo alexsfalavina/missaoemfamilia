@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/auth/session';
 import {
   applyApprovalDecision,
   approveEntireWeeklyBatch,
@@ -12,6 +13,9 @@ const VALID_ACTIONS = new Set([
 ]);
 
 export async function POST(request: NextRequest) {
+  const auth = await requireApiAuth({ roles: ['owner', 'editor'] });
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const action = body?.action;
@@ -27,7 +31,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'APROVAR_LOTE_SEMANAL') {
-      const updated = await approveEntireWeeklyBatch(body?.actor || 'Jessica Nalin');
+      const updated = await approveEntireWeeklyBatch({
+        batchId: typeof body?.batchId === 'string' ? body.batchId : undefined,
+        actor: auth.user.name,
+        actorEmail: auth.user.email,
+      });
       if (updated.length === 0) {
         return NextResponse.json({
           updated: [],
@@ -38,7 +46,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         updated,
         count: updated.length,
-        message: `Lote semanal aprovado (${updated.length} publicações organizadas localmente no Calendário Editorial — sem publicação automática no Instagram).`,
+        message: `Lote semanal aprovado (${updated.length} publicações organizadas no Calendário Editorial — sem publicação automática).`,
       });
     }
 
@@ -68,7 +76,8 @@ export async function POST(request: NextRequest) {
       postIds,
       action,
       feedback: body?.feedback,
-      actor: body?.actor || 'Jessica Nalin',
+      actor: auth.user.name,
+      actorEmail: auth.user.email,
     });
 
     if (updated.length === 0) {
@@ -81,8 +90,8 @@ export async function POST(request: NextRequest) {
     const messageMap: Record<string, string> = {
       APROVAR:
         updated.length === 1
-          ? 'Publicação aprovada e organizada localmente no Calendário Editorial (sem publicação automática no Instagram).'
-          : `${updated.length} publicações aprovadas e organizadas localmente no Calendário Editorial.`,
+          ? 'Publicação aprovada e organizada no Calendário Editorial (sem publicação automática).'
+          : `${updated.length} publicações aprovadas e organizadas no Calendário Editorial.`,
       SOLICITAR_ALTERACOES: 'Solicitação de alteração registrada para revisão do conteúdo.',
       REJEITAR: 'Publicação marcada como rejeitada e removida da fila de agendamento.',
     };

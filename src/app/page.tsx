@@ -36,6 +36,7 @@ import {
   ErrorBanner,
   LoadingCards,
 } from '@/components/FeedbackStates';
+import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 
 interface DashboardResponse {
   metrics: DashboardMetrics;
@@ -45,6 +46,7 @@ interface DashboardResponse {
 }
 
 export default function DashboardPage() {
+  const { canApprove } = useCurrentUser();
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -163,7 +165,11 @@ export default function DashboardPage() {
           className="btn btn-lg"
           style={{ background: '#FFFFFF', color: '#4F236E', flexShrink: 0 }}
         >
-          {metrics.awaitingApprovalCount > 0 ? 'Aprovar semana agora' : 'Ver semana revisada'}
+          {metrics.awaitingApprovalCount > 0
+            ? canApprove
+              ? 'Aprovar semana agora'
+              : 'Visualizar semana'
+            : 'Ver semana revisada'}
           <ArrowRight size={17} />
         </Link>
       </section>
@@ -442,9 +448,9 @@ export default function DashboardPage() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[
-                { name: 'Supabase (Banco)', info: integrationStatus.services.supabase },
-                { name: 'Google Gemini API', info: integrationStatus.services.gemini },
-                { name: 'Instagram Graph API', info: integrationStatus.services.instagram },
+                { name: 'Supabase (Banco & Storage)', info: integrationStatus.services.supabase },
+                { name: 'Google Gemini API (P2)', info: integrationStatus.services.gemini },
+                { name: 'Metricool (Publicação P4)', info: integrationStatus.services.metricool },
               ].map((item) => (
                 <div
                   key={item.name}
@@ -466,7 +472,11 @@ export default function DashboardPage() {
                     }}
                   >
                     <strong style={{ fontSize: '0.84rem' }}>{item.name}</strong>
-                    <span className="badge badge-gold">{item.info.statusLabel}</span>
+                    <span
+                      className={`badge ${item.info.configured ? 'badge-green' : 'badge-gold'}`}
+                    >
+                      {item.info.statusLabel}
+                    </span>
                   </div>
                   <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
                     {item.info.detail}
@@ -474,6 +484,44 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
+            {integrationStatus.knowledgeDocuments &&
+              integrationStatus.knowledgeDocuments.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    paddingTop: 12,
+                    borderTop: '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      color: 'var(--purple-800)',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Base de Conhecimento Oficial (P2 — {integrationStatus.knowledgeDocuments.length}{' '}
+                    docs)
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {integrationStatus.knowledgeDocuments.map((doc) => (
+                      <div
+                        key={doc.id}
+                        style={{
+                          fontSize: '0.73rem',
+                          color: 'var(--text-secondary)',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          gap: 8,
+                        }}
+                      >
+                        <span>• {doc.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
           </section>
         </aside>
       </div>

@@ -11,6 +11,7 @@ import {
   Edit3,
   Film,
   Hand,
+  History,
   MessageSquareWarning,
   Palette,
   RefreshCw,
@@ -21,7 +22,12 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import type { ApprovalStatus, ContentPost, ContentToneProfile } from '@/types/marketing';
+import type {
+  ApprovalStatus,
+  ContentPost,
+  ContentToneProfile,
+  WeeklyBatch,
+} from '@/types/marketing';
 import {
   CATEGORY_META,
   FORMAT_META,
@@ -40,11 +46,15 @@ import {
   LoadingCards,
   ToastMessage,
 } from '@/components/FeedbackStates';
+import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 
 type FilterTab = 'todos' | ApprovalStatus;
 
 export default function ApprovalCentrePage() {
+  const { canEdit, canApprove } = useCurrentUser();
   const [posts, setPosts] = useState<ContentPost[]>([]);
+  const [batches, setBatches] = useState<WeeklyBatch[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterTab>('todos');
@@ -84,20 +94,30 @@ export default function ApprovalCentrePage() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const loadPosts = useCallback(async () => {
+  const loadPosts = useCallback(async (batchOverride?: string) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/posts', { cache: 'no-store' });
+      const targetBatch = batchOverride ?? selectedBatchId;
+      const url = targetBatch
+        ? `/api/posts?batchId=${encodeURIComponent(targetBatch)}`
+        : '/api/posts';
+      const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error('Não foi possível carregar as publicações da semana.');
       const data = await res.json();
       setPosts(data.posts || []);
+      if (Array.isArray(data.batches)) {
+        setBatches(data.batches);
+        if (!targetBatch && data.activeBatchId) {
+          setSelectedBatchId(data.activeBatchId);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar publicações.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedBatchId]);
 
   useEffect(() => {
     loadPosts();
@@ -213,7 +233,7 @@ export default function ApprovalCentrePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'APROVAR_LOTE_SEMANAL',
-          actor: 'Jessica Nalin',
+          batchId: selectedBatchId || undefined,
         }),
       });
       const data = await res.json();
@@ -226,7 +246,7 @@ export default function ApprovalCentrePage() {
       setSelectedIds(new Set());
       setActiveFeedbackBox(null);
       window.dispatchEvent(new Event('jessica-marketing-updated'));
-      showToast('success', data.message || 'Lote semanal aprovado localmente!');
+      showToast('success', data.message || 'Lote semanal aprovado!');
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Falha na aprovação semanal.');
     } finally {
@@ -301,6 +321,7 @@ export default function ApprovalCentrePage() {
 
   const allVisibleSelected =
     filteredPosts.length > 0 && filteredPosts.every((p) => selectedIds.has(p.id));
+  const selectedBatch = batches.find((b) => b.id === selectedBatchId);
 
   return (
     <div>
@@ -323,7 +344,7 @@ export default function ApprovalCentrePage() {
 
       <HumanSafetyBanner />
 
-      {/* Progresso da Revisão de Sábado */}
+      {/* Progresso da Revisão de Sábado + Histórico de Lotes */}
       <section className="card card-compact" style={{ marginBottom: 20 }}>
         <div
           style={{
@@ -340,12 +361,37 @@ export default function ApprovalCentrePage() {
               Progresso da Revisão Semanal: {reviewedCount} de {posts.length} conteúdos decididos
             </strong>
             <p style={{ margin: '2px 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-              {counts.aprovado} aprovados localmente • {counts.aguardando_aprovacao} aguardando
-              aprovação • {counts.alteracoes_solicitadas} com ajustes • {counts.rejeitado}{' '}
-              rejeitados
+              {counts.aprovado} aprovados • {counts.aguardando_aprovacao} aguardando aprovação •{' '}
+              {counts.alteracoes_solicitadas} com ajustes • {counts.rejeitado} rejeitados
+              {selectedBatch?.status === 'arquivado' ? ' • Visualizando lote arquivado' : ''}
             </p>
           </div>
-          <span className="badge badge-purple">{reviewPercent}% concluído</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+            {batches.length > 0 && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <History size={15} color="var(--purple-700)" />
+                <select
+                  id="approval-batch-selector"
+                  aria-label="Selecionar lote semanal do histórico"
+                  className="select"
+                  style={{ maxWidth: 280, padding: '6px 10px', fontSize: '0.8rem' }}
+                  value={selectedBatchId}
+                  onChange={(e) => {
+                    setSelectedBatchId(e.target.value);
+                    setSelectedIds(new Set());
+                  }}
+                >
+                  {batches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.status === 'ativo' ? '● Lote ativo: ' : 'Histórico: '}
+                      {b.weekLabel}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <span className="badge badge-purple">{reviewPercent}% concluído</span>
+          </div>
         </div>
         <div className="progress-track">
           <div className="progress-fill" style={{ width: `${reviewPercent}%` }} />
@@ -386,6 +432,7 @@ export default function ApprovalCentrePage() {
       </div>
 
       {/* Barra de Seleção, Aprovação em Lote e Aprovação da Semana Inteira */}
+      {canApprove && (
       <div className="approval-toolbar">
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
           <label className="checkbox-label">
@@ -438,8 +485,9 @@ export default function ApprovalCentrePage() {
           </button>
         </div>
       </div>
+      )}
 
-      {error && <ErrorBanner message={error} onRetry={loadPosts} />}
+      {error && <ErrorBanner message={error} onRetry={() => loadPosts()} />}
       {loading && <LoadingCards count={3} />}
 
       {!loading && !error && filteredPosts.length === 0 && (
@@ -518,13 +566,15 @@ export default function ApprovalCentrePage() {
                   <div className="approval-body-col">
                     <div className="approval-card-header">
                       <label className="checkbox-label">
-                        <input
-                          type="checkbox"
-                          className="checkbox-input"
-                          checked={isSelected}
-                          onChange={() => toggleSelect(post.id)}
-                          aria-label={`Selecionar publicação ${post.title}`}
-                        />
+                        {canApprove && (
+                          <input
+                            type="checkbox"
+                            className="checkbox-input"
+                            checked={isSelected}
+                            onChange={() => toggleSelect(post.id)}
+                            aria-label={`Selecionar publicação ${post.title}`}
+                          />
+                        )}
                         <span style={{ color: 'var(--purple-700)' }}>
                           Publicação #{index + 1} • {post.dayOfWeek}
                         </span>
@@ -622,7 +672,7 @@ export default function ApprovalCentrePage() {
                       >
                         <span className="form-label">Legenda preparada</span>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                          {!isEditingCaption && (
+                          {canEdit && !isEditingCaption && (
                             <button
                               type="button"
                               id={`btn-editar-legenda-${post.id}`}
@@ -782,6 +832,7 @@ export default function ApprovalCentrePage() {
                     </div>
 
                     {/* Ações rápidas de refinamento da IA (Regenerar, Outro Tom, Outro Visual) */}
+                    {canEdit && (
                     <div
                       style={{
                         display: 'flex',
@@ -838,6 +889,7 @@ export default function ApprovalCentrePage() {
                         Solicitar outro visual
                       </button>
                     </div>
+                    )}
 
                     {/* Seletor inline de Tom */}
                     {isToneOpen && tonePickerBox && (
@@ -959,59 +1011,63 @@ export default function ApprovalCentrePage() {
 
                     {/* 3 Botões Principais de Ação */}
                     <div className="approval-actions-bar">
-                      <button
-                        type="button"
-                        id={`btn-aprovar-${post.id}`}
-                        className="btn btn-approve"
-                        disabled={isBusy || post.status === 'aprovado'}
-                        onClick={() => submitDecision([post.id], 'APROVAR')}
-                      >
-                        {post.status === 'aprovado' ? (
-                          <>
-                            <CheckCircle2 size={16} />
-                            Aprovado localmente
-                          </>
-                        ) : (
-                          <>
-                            <Check size={16} />
-                            APROVAR
-                          </>
-                        )}
-                      </button>
+                      {canApprove && (
+                        <>
+                          <button
+                            type="button"
+                            id={`btn-aprovar-${post.id}`}
+                            className="btn btn-approve"
+                            disabled={isBusy || post.status === 'aprovado'}
+                            onClick={() => submitDecision([post.id], 'APROVAR')}
+                          >
+                            {post.status === 'aprovado' ? (
+                              <>
+                                <CheckCircle2 size={16} />
+                                Aprovado localmente
+                              </>
+                            ) : (
+                              <>
+                                <Check size={16} />
+                                APROVAR
+                              </>
+                            )}
+                          </button>
 
-                      <button
-                        type="button"
-                        id={`btn-alteracoes-${post.id}`}
-                        className="btn btn-changes"
-                        disabled={isBusy}
-                        onClick={() =>
-                          setActiveFeedbackBox({
-                            postId: post.id,
-                            mode: 'SOLICITAR_ALTERACOES',
-                            text: post.approvalFeedback || '',
-                          })
-                        }
-                      >
-                        <MessageSquareWarning size={16} />
-                        SOLICITAR ALTERAÇÕES
-                      </button>
+                          <button
+                            type="button"
+                            id={`btn-alteracoes-${post.id}`}
+                            className="btn btn-changes"
+                            disabled={isBusy}
+                            onClick={() =>
+                              setActiveFeedbackBox({
+                                postId: post.id,
+                                mode: 'SOLICITAR_ALTERACOES',
+                                text: post.approvalFeedback || '',
+                              })
+                            }
+                          >
+                            <MessageSquareWarning size={16} />
+                            SOLICITAR ALTERAÇÕES
+                          </button>
 
-                      <button
-                        type="button"
-                        id={`btn-rejeitar-${post.id}`}
-                        className="btn btn-reject"
-                        disabled={isBusy}
-                        onClick={() =>
-                          setActiveFeedbackBox({
-                            postId: post.id,
-                            mode: 'REJEITAR',
-                            text: '',
-                          })
-                        }
-                      >
-                        <XCircle size={16} />
-                        REJEITAR
-                      </button>
+                          <button
+                            type="button"
+                            id={`btn-rejeitar-${post.id}`}
+                            className="btn btn-reject"
+                            disabled={isBusy}
+                            onClick={() =>
+                              setActiveFeedbackBox({
+                                postId: post.id,
+                                mode: 'REJEITAR',
+                                text: '',
+                              })
+                            }
+                          >
+                            <XCircle size={16} />
+                            REJEITAR
+                          </button>
+                        </>
+                      )}
 
                       {post.approvedAt && post.status === 'aprovado' && (
                         <span
@@ -1022,10 +1078,63 @@ export default function ApprovalCentrePage() {
                             fontWeight: 600,
                           }}
                         >
-                          Aprovado localmente por {post.approvedBy || 'Jessica Nalin'} (não publicado)
+                          Aprovado por {post.approvedBy || 'Jessica Nalin'} (não publicado)
                         </span>
                       )}
                     </div>
+
+                    {post.auditLog && post.auditLog.length > 0 && (
+                      <details
+                        style={{
+                          marginTop: 4,
+                          padding: '8px 12px',
+                          borderRadius: 10,
+                          background: 'var(--bg-subtle)',
+                          border: '1px solid var(--border-subtle)',
+                          fontSize: '0.76rem',
+                          color: 'var(--text-secondary)',
+                        }}
+                      >
+                        <summary
+                          style={{
+                            cursor: 'pointer',
+                            fontWeight: 700,
+                            color: 'var(--purple-800)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                          }}
+                        >
+                          <History size={13} />
+                          Histórico de auditoria ({post.auditLog.length}{' '}
+                          {post.auditLog.length === 1 ? 'registro' : 'registros'})
+                        </summary>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                          {post.auditLog.slice(0, 6).map((entry) => (
+                            <div
+                              key={entry.id}
+                              style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                justifyContent: 'space-between',
+                                gap: 6,
+                                paddingTop: 6,
+                                borderTop: '1px solid var(--border-subtle)',
+                              }}
+                            >
+                              <span>
+                                <strong>{entry.action}</strong> por {entry.actor}
+                                {entry.actorEmail ? ` (${entry.actorEmail})` : ''}
+                                {entry.note ? ` — ${entry.note}` : ''}
+                              </span>
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
+                                {new Date(entry.createdAt).toLocaleString('pt-BR')}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
                   </div>
                 </div>
               </article>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/auth/session';
 import {
   createLead,
   deleteLead,
@@ -21,6 +22,9 @@ const VALID_CHANNELS = new Set<PotentialCustomerLead['channel']>([
 const VALID_STAGES = new Set<LeadStage>(['novo', 'em_conversa', 'agendado', 'concluido']);
 
 export async function GET() {
+  const auth = await requireApiAuth();
+  if (!auth.ok) return auth.response;
+
   try {
     const leads = await listLeads();
     return NextResponse.json({ leads });
@@ -34,6 +38,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireApiAuth({ roles: ['owner', 'editor'] });
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const contactName = String(body?.contactName ?? '').trim();
@@ -80,6 +87,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const auth = await requireApiAuth({ roles: ['owner', 'editor'] });
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const id = String(body?.id ?? '').trim();
@@ -111,6 +121,9 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const auth = await requireApiAuth({ roles: ['owner', 'editor'] });
+  if (!auth.ok) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
